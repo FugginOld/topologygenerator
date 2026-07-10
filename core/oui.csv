@@ -1,0 +1,12 @@
+# Minimal starter OUI table: PREFIX,Vendor
+# Replace with full IEEE registry: http://standards-oui.ieee.org/oui/oui.csv
+001B21,Intel
+3CFDFE,Intel
+B49691,Intel
+DCA632,Raspberry Pi
+E45F01,Raspberry Pi
+2CCF67,Raspberry Pi
+B827EB,Raspberry Pi
+74ACB9,Ubiquiti
+FCECDA,Ubiquiti
+245A4C,Ubiquiti

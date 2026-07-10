@@ -1,0 +1,59 @@
+# ── topologygenerator config ───────────────────────────────────────────────
+# Copy to config.yaml (which is gitignored) and fill in real values.
+# NEVER commit config.yaml — it holds API keys and your network layout.
+
+# Mark a node offline if not seen within this many minutes.
+offline_after_minutes: 30
+
+# ── VLAN zones ──────────────────────────────────────────────────────────────
+# OPNsense can auto-discover these; static_zones augments/overrides.
+# cls drives the color band: mgmt|lan|srv|adsb|iot|guest|dmz
+static_zones:
+  - {vid: 10, name: MGMT,        subnet: 10.0.10.0/24, policy: "admin only",     cls: mgmt}
+  - {vid: 20, name: TRUSTED,     subnet: 10.0.20.0/24, policy: "full egress",    cls: lan}
+  - {vid: 30, name: SERVERS,     subnet: 10.0.30.0/24, policy: "selective",      cls: srv}
+  - {vid: 40, name: ADS-B,       subnet: 10.0.40.0/24, policy: "egress+feeders", cls: adsb}
+  - {vid: 50, name: IoT,         subnet: 10.0.50.0/24, policy: "no lateral",     cls: iot}
+  - {vid: 60, name: GUEST,       subnet: 10.0.60.0/24, policy: "isolated",       cls: guest}
+
+# ── collectors ──────────────────────────────────────────────────────────────
+opnsense:
+  enabled: false
+  url: https://10.0.10.1
+  key: "CHANGEME"
+  secret: "CHANGEME"
+  verify_tls: false
+  zone_map:
+    SERVERS: {cls: srv, policy: "selective"}
+    IOT:     {cls: iot, policy: "no lateral"}
+
+arpscan:
+  enabled: true
+  use_sudo: true
+  subnets:
+    - 10.0.10.0/24
+    - 10.0.30.0/24
+    - 10.0.40.0/24
+  # interfaces: [eth0.10, eth0.30]   # alternative to subnets
+
+unifi_snmp:
+  enabled: false
+  switches:
+    - {host: 10.0.10.2, community: public, version: 2c, name: core-sw01}
+
+tailscale:
+  enabled: false
+  binary: tailscale
+
+docker:
+  enabled: false
+  ssh_opts: "-o ConnectTimeout=8 -o BatchMode=yes"
+  hosts:
+    - {ssh: joe@10.0.30.10, name: fugginnas}
+    - {ssh: joe@10.0.30.11, name: ollama-01}
+
+dns:
+  enabled: false
+  hosts_files: [/etc/hosts]
+  # pihole_url: http://10.0.10.5/admin
+  # pihole_token: "CHANGEME"

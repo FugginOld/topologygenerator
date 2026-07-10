@@ -1,0 +1,20 @@
+# ── NEVER commit real network data or secrets ──
+config.yaml
+out/
+*.raw.json
+topology.json
+renderers/html/topology.json
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# editor
+.vscode/
+.idea/
+*.swp
+.DS_Store

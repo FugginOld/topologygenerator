@@ -1,0 +1,7 @@
+Interface: eth0, type: EN10MB, MAC: aa:bb:cc:00:00:01, IPv4: 10.0.30.1
+Starting arp-scan 1.9.7
+10.0.30.1	aa:bb:cc:00:00:01	(Unknown)
+10.0.30.10	dc:a6:32:11:22:33	Raspberry Pi Trading Ltd
+10.0.30.11	3c:fd:fe:44:55:66	Intel Corporate
+
+3 packets received by filter, 0 packets dropped
