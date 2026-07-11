@@ -251,14 +251,15 @@ function clip(s,n){s=String(s);return s.length>n?s.slice(0,n-1)+'…':s;}
 // press-and-hold detail: every field the node carries, key/value rows
 function details(n){
   const r=[];
+  if(n.meta) for(const k in n.meta) r.push([k,n.meta[k]]);   // real per-device identity from PnP
   if(n.kind) r.push(['type',n.kind]);
   if(n.cls) r.push(['lane',n.cls.toUpperCase()]);
   if(n.link) r.push(['link',n.link]);
-  if(n.cap) r.push(['capacity',n.cap+(n.grp==='net'?' Gb/s':' GB/s')]);
+  if(n.cap) r.push(['bandwidth',n.cap+(n.grp==='net'?' Gb/s':' GB/s')]);
   if(n.grp) r.push(['group',n.grp]);
   if(n.up!==undefined) r.push(['port',n.up?'UP':'DOWN']);
-  if(n.fill!=null) r.push(['used',Math.round(n.fill*100)+'%']);
-  else if(measured(n)) r.push(['load',Math.round((n.load||0)*100)+'%']);
+  if(n.fill!=null&&!(n.meta&&'used'in n.meta)) r.push(['used',Math.round(n.fill*100)+'%']);
+  else if(measured(n)) r.push(['live load',Math.round((n.load||0)*100)+'%']);
   return r;
 }
 function cardBig(world,n,pin){

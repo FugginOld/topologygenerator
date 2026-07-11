@@ -37,6 +37,14 @@ from datetime import datetime, timezone
 
 DDR = {"DDR5": "DDR5", "DDR4": "DDR4", "DDR3": "DDR3", "LPDDR5": "LPDDR5", "LPDDR4": "LPDDR4"}
 
+try:                                  # reuse the Windows generator's vendor table
+    from make_pc_topology import VENDORS
+except Exception:
+    VENDORS = {}
+
+PCI_CLASS = {"06": "bridge", "03": "display", "02": "network", "01": "storage",
+             "0c": "serial bus", "04": "multimedia", "0d": "wireless", "08": "system"}
+
 
 def read(path: str) -> str:
     try:
@@ -95,6 +103,26 @@ def pci_cat(class_hex: str) -> dict:
     if base == "0c" and sub == "03":
         return {"grp": "usb", "cap": 10}
     return {"struct": True}                 # audio, SMBus, ISA, etc.
+
+
+def pci_meta(bdf: str, extra: dict) -> dict:
+    """Real per-device identity from sysfs: vendor, device id, revision, class.
+    Same shape as the Windows generator's meta — non-generic, straight from silicon."""
+    m = {}
+    ven = read(f"/sys/bus/pci/devices/{bdf}/vendor").lower().removeprefix("0x")
+    dev = read(f"/sys/bus/pci/devices/{bdf}/device").lower().removeprefix("0x")
+    rev = read(f"/sys/bus/pci/devices/{bdf}/revision").lower().removeprefix("0x")
+    cls = read(f"/sys/bus/pci/devices/{bdf}/class").lower().removeprefix("0x")
+    if ven:
+        m["vendor"] = VENDORS.get(ven, "0x" + ven)
+    if dev:
+        m["device id"] = "0x" + dev
+    if rev and rev not in ("00", ""):
+        m["revision"] = "0x" + rev
+    if cls[:2] in PCI_CLASS:
+        m["class"] = PCI_CLASS[cls[:2]]
+    m.update(extra)
+    return m
 
 
 def pci_parent(bdf: str) -> str | None:
@@ -264,6 +292,7 @@ def build() -> list[dict]:
                 node["sub"] += (" · link up" if nets[bdf]["up"] else " · no link")
                 if spd > 0:
                     node["cap"] = spd / 1000
+        node["meta"] = pci_meta(bdf, {})
         p = pci_parent(bdf)
         node["_p"] = p if p in kept else root_key
         nodes[bdf] = node
@@ -295,10 +324,12 @@ def build() -> list[dict]:
     for d in disks():
         parent = ctrl_by_bdf.get(d["ctrl_bdf"], root_id)
         node = {"label": clean(d["name"]), "sub": f"{d['tran']} · {d['gb']}GB",
-                "cls": "gen4", "parent": parent, "kind": "leaf", "cap": 7, "grp": "disk"}
+                "cls": "gen4", "parent": parent, "kind": "leaf", "cap": 7, "grp": "disk",
+                "meta": {"bus type": d["tran"], "capacity": f"{d['gb']} GB"}}
         if d["fill"] is not None:
             node["fill"] = d["fill"]
             node["sub"] = f"{d['used_gb']}/{d['tot_gb']}GB used"
+            node["meta"]["used"] = f"{d['used_gb']}/{d['tot_gb']} GB ({round(d['fill']*100)}%)"
         add(node)
 
     # RAM under a synthesized IMC
@@ -308,8 +339,12 @@ def build() -> list[dict]:
                    "cls": "gen5", "parent": root_id, "kind": "hub", "cap": 0})
         for d in dm:
             lbl = f"{d['size']} {d['type']}" + (f"-{d['speed']}" if d["speed"] else "")
+            rammeta = {"type": d["type"], "size": d["size"], "slot": d["locator"]}
+            if d["speed"]:
+                rammeta["speed"] = d["speed"] + " MT/s"
             add({"label": lbl.strip(), "sub": d["locator"], "cls": "gen5",
-                 "parent": imc, "kind": "leaf", "cap": 38, "grp": "mem", "link": d["type"]})
+                 "parent": imc, "kind": "leaf", "cap": 38, "grp": "mem", "link": d["type"],
+                 "meta": rammeta})
 
     # displays under the GPU node
     gpu_id = next((x["id"] for x in out if x.get("grp") == "gpu"), root_id)
@@ -338,6 +373,11 @@ def _selftest() -> None:
     sample = "Slot:\t0000:00:1f.6\nClass:\tEthernet controller\nVendor:\tIntel Corporation\nDevice:\tI219-V\n\n"
     g = globals(); g["run"] = lambda c: sample
     assert lspci_names()["0000:00:1f.6"] == "Intel I219-V"
+    # pci_meta parses sysfs vendor/device/revision/class files
+    sysfs = {"vendor": "0x8086", "device": "0x9a09", "revision": "0x02", "class": "0x030000"}
+    g["read"] = lambda p: sysfs.get(p.rsplit("/", 1)[-1], "")
+    mm = pci_meta("0000:00:02.0", {"bus type": "NVMe"})
+    assert mm["device id"] == "0x9a09" and mm["class"] == "display" and mm["bus type"] == "NVMe"
     print("selftest OK")
 
 
