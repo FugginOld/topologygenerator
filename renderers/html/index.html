@@ -122,7 +122,7 @@ function renderList(){
   });
 }
 async function selectTopo(id){
-  activeId=id; renderList();
+  activeId=id; pinned=null; renderList();
   try{
     const r=await fetch('t/'+id+'.json?_='+Date.now());
     if(!r.ok) throw new Error('HTTP '+r.status);
@@ -207,7 +207,9 @@ function render(){
     if(snapGuide.x!=null)world.appendChild(el('line',{x1:snapGuide.x,y1:y0,x2:snapGuide.x,y2:y1,stroke:'#63d0ff','stroke-width':0.6,'stroke-dasharray':'4 6',opacity:.4}));
   }
   nodes.forEach(n=>{ if(n.parent&&byId[n.parent]) drawLink(world,byId[n.parent],n,n.cls||'gen3',n.load,n.link); });
-  nodes.forEach(n=>card(world,n,n.kind==='cpu'));
+  const big=held||pinned;                            // hold-to-preview or click-to-pin
+  nodes.forEach(n=>{ if(n.id!==big) card(world,n,n.kind==='cpu'); });
+  if(big&&byId[big]) cardBig(world,byId[big],big===pinned);   // drawn last -> on top, enlarged
 }
 function drawLink(world,p,c,cls,load,label){
   load=load||.1; const midx=(p.x+c.x)/2;
@@ -246,6 +248,37 @@ function card(world,n,big){
   world.appendChild(g);
 }
 function clip(s,n){s=String(s);return s.length>n?s.slice(0,n-1)+'…':s;}
+// press-and-hold detail: every field the node carries, key/value rows
+function details(n){
+  const r=[];
+  if(n.kind) r.push(['type',n.kind]);
+  if(n.cls) r.push(['lane',n.cls.toUpperCase()]);
+  if(n.link) r.push(['link',n.link]);
+  if(n.cap) r.push(['capacity',n.cap+(n.grp==='net'?' Gb/s':' GB/s')]);
+  if(n.grp) r.push(['group',n.grp]);
+  if(n.up!==undefined) r.push(['port',n.up?'UP':'DOWN']);
+  if(n.fill!=null) r.push(['used',Math.round(n.fill*100)+'%']);
+  else if(measured(n)) r.push(['load',Math.round((n.load||0)*100)+'%']);
+  return r;
+}
+function cardBig(world,n,pin){
+  const rows=details(n), w=280, h=54+rows.length*15+(pin?15:0);
+  const col=n.kind==='cpu'?'#63d0ff':(n.cls?CLS[n.cls]:'#63d0ff');
+  const g=el('g',{class:'card',transform:`translate(${n.x-w/2} ${n.y-h/2})`}); g.dataset.id=n.id;
+  g.appendChild(el('rect',{x:0,y:0,width:w,height:h,rx:4,fill:'rgba(6,16,28,.97)',stroke:col,'stroke-width':1.6,filter:'url(#g)'}));
+  g.appendChild(el('rect',{x:0,y:0,width:4,height:h,fill:col}));
+  if(pin) g.appendChild(el('circle',{cx:w-11,cy:11,r:3,fill:col,filter:'url(#g)'}));   // pin dot
+  g.appendChild(el('text',{x:14,y:21,'font-size':12.5,fill:'#cdeaf7','letter-spacing':'.02em'},clip(n.label,pin?37:40)));
+  g.appendChild(el('text',{x:14,y:37,'font-size':8.5,fill:'#2d5f7e'},clip(n.sub||'',48)));
+  let y=55;
+  rows.forEach(([k,v])=>{
+    g.appendChild(el('text',{x:14,y,'font-size':9,fill:'#2d5f7e','letter-spacing':'.06em'},k));
+    g.appendChild(el('text',{x:w-14,y,'font-size':9.5,fill:col,'text-anchor':'end'},String(v)));
+    y+=15;
+  });
+  if(pin) g.appendChild(el('text',{x:14,y,'font-size':7.5,fill:'#2d5f7e','letter-spacing':'.12em'},'PINNED · CLICK TO CLOSE'));
+  world.appendChild(g);
+}
 
 // ================= LIVE TELEMETRY (real) =================
 let TELE={cpu:0,net_gbps:0,disk_mbps:0,nics:{}};
@@ -297,11 +330,11 @@ function tick(){
 
 // ================= PAN / ZOOM / DRAG =================
 const stage=document.getElementById('stage');
-let drag=null;
+let drag=null, held=null, pinned=null;   // held = pressed card (preview); pinned = click-toggled open
 function screenPt(e){const r=stage.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
 stage.addEventListener('mousedown',e=>{
   const p=screenPt(e); const cardEl=e.target.closest('.card');
-  if(cardEl&&TOPO){ const n=TOPO.nodes.find(x=>x.id===cardEl.dataset.id); drag={type:'node',n,sx:p.x,sy:p.y,ox:n.x,oy:n.y}; }
+  if(cardEl&&TOPO){ const n=TOPO.nodes.find(x=>x.id===cardEl.dataset.id); held=n.id; drag={type:'node',n,sx:p.x,sy:p.y,ox:n.x,oy:n.y}; }
   else { drag={type:'pan',sx:p.x,sy:p.y,tx:view.tx,ty:view.ty}; stage.classList.add('panning'); }
 });
 // magnetic align: snap a dragged card to share a nearby card's row (y) / column (x)
@@ -334,11 +367,15 @@ function settle(n,startY){
 window.addEventListener('mousemove',e=>{
   if(!drag)return; const p=screenPt(e);
   if(drag.type==='pan'){ view.tx=drag.tx+(p.x-drag.sx); view.ty=drag.ty+(p.y-drag.sy); }
-  else{ drag.n.x=drag.ox+(p.x-drag.sx)/view.k; drag.n.y=drag.oy+(p.y-drag.sy)/view.k; magnetize(drag.n); }
+  else{ drag.n.x=drag.ox+(p.x-drag.sx)/view.k; drag.n.y=drag.oy+(p.y-drag.sy)/view.k;
+    if(Math.abs(p.x-drag.sx)+Math.abs(p.y-drag.sy)>4)drag.moved=true; magnetize(drag.n); }
 });
 window.addEventListener('mouseup',()=>{
-  if(drag&&drag.type==='node') settle(drag.n,drag.oy);
-  drag=null;snapGuide=null;stage.classList.remove('panning');
+  if(drag&&drag.type==='node'){
+    if(drag.moved) settle(drag.n,drag.oy);
+    else pinned=(pinned===drag.n.id)?null:drag.n.id;   // click (no drag) toggles pin
+  }
+  drag=null;held=null;snapGuide=null;stage.classList.remove('panning');   // release -> shrinks (unless pinned)
 });
 stage.addEventListener('wheel',e=>{
   e.preventDefault(); const p=screenPt(e);
