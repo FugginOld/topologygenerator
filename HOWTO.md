@@ -36,20 +36,24 @@ Do this **once**, on the machine that will host the dashboard.
    cd topologygenerator
    ```
 
-3. **Open the firewall** so other machines can reach the dashboard (run
-   PowerShell **as Administrator**, once):
+3. **Start the server** — the launcher opens the firewall, prints the address to
+   give reporting machines, and runs the server. Run it from an **Administrator**
+   PowerShell the first time so it can add the firewall rule (after that, a normal
+   window is fine). Leave the window open.
+
+   ```powershell
+   .\server.ps1
+   ```
+
+   Prefer to do it by hand? Run this once as Administrator, then start the server
+   any time:
+
    ```powershell
    New-NetFirewallRule -DisplayName "Topology dashboard" -Direction Inbound -LocalPort 8770 -Protocol TCP -Action Allow
-   ```
-
-4. **Start the server:**
-   ```powershell
    python renderers\html\serve.py
    ```
-   Leave this window open. You should see:
-   `dashboard on http://localhost:8770  (Ctrl-C to stop)`
 
-5. **Open the dashboard:** http://localhost:8770
+4. **Open the dashboard:** http://localhost:8770
    - Click **GENERATE** to add *this* server's own hardware map.
    - Other machines will appear automatically once their agents report (Part B/C).
 
@@ -214,6 +218,7 @@ Add `--report` (what `report.sh`/`report.ps1` do) to also stream live telemetry.
 
 | File | Purpose |
 |---|---|
+| `server.ps1` | start the dashboard (firewall + serve.py) on Windows |
 | `renderers/html/serve.py` | dashboard server + ingest/telemetry API |
 | `renderers/html/index.html` | the dashboard UI |
 | `make_pc_topology.py` | Windows hardware scan |
