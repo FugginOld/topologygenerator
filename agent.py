@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -66,7 +67,16 @@ def push(server: str, topo: dict, token: str) -> dict:
 def report(server: str, name: str, token: str, interval: float, topo_every: float) -> None:
     """Daemon: push topology, then push live telemetry every `interval` seconds,
     re-scanning the topology every `topo_every` seconds."""
-    tid = push(server, generate(name), token)["id"]
+    try:
+        tid = push(server, generate(name), token)["id"]
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:200]
+        if e.code == 404:
+            sys.exit(f"server returned 404 for /api/ingest — {server} is running an OLD serve.py.\n"
+                     f"On the server: stop it, `git pull`, and restart (.\\server.ps1 or python renderers/html/serve.py).")
+        sys.exit(f"server rejected the push: HTTP {e.code} {detail}")
+    except (urllib.error.URLError, OSError) as e:
+        sys.exit(f"could not reach {server}: {e}  (is serve.py running? firewall open on 8770?)")
     print(f"reporting '{name}' (id={tid}) to {server} every {interval}s; Ctrl-C to stop")
     last_topo = time.monotonic()
     while True:
