@@ -1,0 +1,3 @@
+# Shell scripts must stay LF even when authored/committed from Windows,
+# otherwise they break when checked out and run on Linux hosts.
+*.sh text eol=lf

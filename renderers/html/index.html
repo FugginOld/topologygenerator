@@ -3,195 +3,361 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>homelab · topology</title>
+<title>PC fabric dashboard</title>
 <style>
   :root{--bg0:#04070f;--line:#173553;--hud:#63d0ff;--hud-dim:#2d5f7e;--ink:#a6d9ef;
-    --ok:#46e0a4;--warn:#ffc451;--crit:#ff5f6d;--ts:#8b7bff;}
+    --ok:#46e0a4;--warn:#ffc451;--crit:#ff5f6d;--gen5:#c98bff;--gen4:#63d0ff;--gen3:#46e0a4;--panel:rgba(8,20,34,.82);}
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%}
-  body{background:radial-gradient(ellipse at 50% -15%,#0a1d33 0%,var(--bg0) 60%),var(--bg0);
-    color:var(--ink);font-family:"DejaVu Sans Mono","Consolas",monospace;overflow:hidden;}
-  #frame{position:fixed;inset:12px;border:1px solid var(--line);border-radius:5px;pointer-events:none;z-index:5}
-  header{position:fixed;top:24px;left:32px;right:32px;z-index:7;display:flex;justify-content:space-between;align-items:flex-start}
-  header h1{font-size:15px;letter-spacing:.22em;color:var(--hud);text-shadow:0 0 12px rgba(99,208,255,.45)}
-  header .tag{font-size:9.5px;color:var(--hud-dim);letter-spacing:.13em;margin-top:5px}
-  header .rt{text-align:right;font-size:10px;color:var(--hud-dim);line-height:1.85}
-  header .rt b{color:var(--ok)}
-  #stage{position:fixed;inset:66px 32px 30px;z-index:4}
-  svg{width:100%;height:100%;overflow:visible}
-  #ctrl{position:fixed;bottom:26px;left:32px;z-index:8;display:flex;gap:10px;align-items:center}
-  .btn{border:1px solid var(--line);background:rgba(8,20,34,.85);color:var(--ink);
-    font-family:inherit;font-size:9.5px;letter-spacing:.1em;padding:7px 12px;border-radius:4px;cursor:pointer}
-  .btn.on{border-color:var(--ts);color:#b9aeff}
-  #ctrl .note{font-size:9px;color:var(--hud-dim)}
-  #err{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:20;
-    color:var(--warn);font-size:13px;text-align:center;padding:40px;display:none}
+  body{background:radial-gradient(ellipse at 60% -20%,#0a1d33 0%,var(--bg0) 62%),var(--bg0);
+    color:var(--ink);font-family:"DejaVu Sans Mono","Consolas",monospace;overflow:hidden;display:flex;height:100vh;}
+
+  /* SIDEBAR */
+  #sidebar{flex:0 0 250px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:rgba(6,14,24,.6);z-index:8}
+  #sidebar .head{padding:18px 16px 12px;border-bottom:1px solid var(--line)}
+  #sidebar .head h2{font-size:12px;letter-spacing:.24em;color:var(--hud);text-shadow:0 0 10px rgba(99,208,255,.4)}
+  #sidebar .head .sub{font-size:8.5px;color:var(--hud-dim);letter-spacing:.12em;margin-top:5px}
+  #addbtn{margin:12px 14px;padding:9px;border:1px dashed var(--hud-dim);border-radius:4px;background:transparent;
+    color:var(--hud);font-family:inherit;font-size:10px;letter-spacing:.14em;cursor:pointer;transition:.15s}
+  #addbtn:hover{border-color:var(--hud);background:rgba(99,208,255,.08);box-shadow:0 0 14px rgba(99,208,255,.15)}
+  #addbtn:disabled{opacity:.5;cursor:wait}
+  #list{flex:1;overflow-y:auto;padding:0 10px}
+  #list .empty{padding:20px 12px;font-size:9px;color:var(--hud-dim);letter-spacing:.08em;line-height:1.8;text-align:center}
+  #list .empty code{color:var(--hud)}
+  .item{position:relative;padding:11px 12px;margin:6px 0;border:1px solid var(--line);border-radius:4px;cursor:pointer;transition:.15s;background:rgba(8,20,34,.4)}
+  .item:hover{border-color:var(--hud-dim);background:rgba(8,20,34,.8)}
+  .item.active{border-color:var(--hud);background:rgba(99,208,255,.1);box-shadow:inset 0 0 20px rgba(99,208,255,.08)}
+  .item.active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--hud);border-radius:4px 0 0 4px}
+  .item .nm{font-size:11px;color:#cdeaf7;letter-spacing:.03em}
+  .item .mt{font-size:8px;color:var(--hud-dim);letter-spacing:.06em;margin-top:5px}
+  .item .del{position:absolute;top:9px;right:9px;width:16px;height:16px;border:none;background:transparent;color:var(--hud-dim);cursor:pointer;font-size:13px;line-height:1;opacity:0;transition:.15s}
+  .item:hover .del{opacity:1} .item .del:hover{color:var(--crit)}
+  #sidebar .foot{padding:4px 16px 12px;font-size:8px;color:var(--hud-dim);letter-spacing:.1em;line-height:1.7}
+
+  /* MAIN */
+  #main{flex:1;position:relative;overflow:hidden}
+  #frame{position:absolute;inset:12px;border:1px solid var(--line);border-radius:5px;pointer-events:none;z-index:5;box-shadow:inset 0 0 70px rgba(30,90,130,.07)}
+  .corner{position:absolute;width:20px;height:20px;border:2px solid var(--hud);opacity:.55;z-index:6;pointer-events:none}
+  .corner.tl{top:11px;left:11px;border-right:none;border-bottom:none}
+  .corner.br{bottom:11px;right:11px;border-left:none;border-top:none}
+  header{position:absolute;top:26px;left:32px;right:32px;z-index:7;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+  header h1{font-size:15px;letter-spacing:.2em;color:var(--hud);text-shadow:0 0 12px rgba(99,208,255,.45)}
+  header .tag{font-size:9.5px;color:var(--hud-dim);letter-spacing:.14em;margin-top:5px;max-width:560px;line-height:1.6}
+  header .rt{text-align:right;font-size:10px;color:var(--hud-dim);letter-spacing:.1em;line-height:1.85}
+  header .rt b{color:var(--ok)} header .rt b.warn{color:var(--warn)} header .rt b.crit{color:var(--crit)}
+  #stage{position:absolute;inset:70px 32px 40px;z-index:4;cursor:grab}
+  #stage.panning{cursor:grabbing}
+  svg{width:100%;height:100%;overflow:visible;touch-action:none}
+  text{font-family:"DejaVu Sans Mono",monospace;user-select:none}
+  .card{cursor:move}
+  #legend{padding:12px 16px 6px;border-top:1px solid var(--line);font-size:9px;color:var(--hud-dim);letter-spacing:.08em;line-height:2}
+  #legend i{display:inline-block;width:16px;height:2px;vertical-align:middle;margin-right:8px}
+  #err{position:absolute;inset:70px 32px 40px;display:none;align-items:center;justify-content:center;z-index:20;color:var(--warn);font-size:12px;text-align:center;padding:40px;line-height:1.9}
+  #err code{color:var(--hud)}
+  #zoom{position:absolute;right:30px;bottom:34px;z-index:8;display:flex;flex-direction:column;gap:6px}
+  #zoom button{width:34px;height:34px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--hud);font-family:inherit;font-size:15px;cursor:pointer;transition:.15s;line-height:1}
+  #zoom button:hover{border-color:var(--hud);background:rgba(99,208,255,.1);box-shadow:0 0 12px rgba(99,208,255,.15)}
+  #zoom button.fit{font-size:8.5px;letter-spacing:.06em}
+  #zpct{position:absolute;left:32px;bottom:38px;z-index:8;font-size:9px;color:var(--hud-dim);letter-spacing:.1em}
 </style>
 </head>
 <body>
-<div id="frame"></div>
-<header>
-  <div><h1>H O M E L A B &nbsp; T O P O L O G Y</h1>
-    <div class="tag" id="tag">loading topology.json …</div></div>
-  <div class="rt">HOSTS <b id="hosts">0</b> online<br>VLANS <b id="vlans">0</b><br>
-    UPDATED <b id="gen">—</b></div>
-</header>
-<div id="stage"><svg id="svg" viewBox="0 0 1400 840"></svg></div>
-<div id="ctrl">
-  <button class="btn" id="tsBtn">◇ TAILSCALE OVERLAY</button>
-  <button class="btn on" id="flowBtn">≈ FLOW: ON</button>
-  <button class="btn" id="reloadBtn">⟳ RELOAD</button>
-  <span class="note">reads topology.json · click device to isolate · auto-refresh 30s</span>
-</div>
-<div id="err"></div>
+
+<aside id="sidebar">
+  <div class="head"><h2>T O P O L O G I E S</h2><div class="sub">pc hardware fabric maps</div></div>
+  <button id="addbtn">+ &nbsp; G E N E R A T E</button>
+  <div id="list"></div>
+  <div id="legend">lane class
+    <div><i style="background:#c98bff"></i>Gen5</div>
+    <div><i style="background:#63d0ff"></i>Gen4</div>
+    <div><i style="background:#46e0a4"></i>Gen3 / chipset</div></div>
+  <div class="foot">drag any module · scroll to zoom · drag empty space to pan</div>
+</aside>
+
+<main id="main">
+  <div id="frame"></div><div class="corner tl"></div><div class="corner br"></div>
+  <header>
+    <div><h1 id="title">—</h1><div class="tag" id="subtitle"></div></div>
+    <div class="rt">STATE <b id="stat">NOMINAL</b><br>PORTS <b id="ports">0/0</b> up<br>NET <b id="net">0.0</b> Gb/s<br>STORAGE <b id="sto">0</b> MB/s<br>CPU <b id="pkg">0</b>%<b id="cputemp"></b></div>
+  </header>
+  <div id="stage"><svg id="svg"></svg></div>
+  <div id="err"></div>
+  <div id="zpct">100%</div>
+  <div id="zoom">
+    <button id="zin" title="zoom in">+</button>
+    <button id="zout" title="zoom out">−</button>
+    <button id="zfit" class="fit" title="fit to window">FIT</button>
+  </div>
+</main>
 
 <script>
 const svg=document.getElementById('svg');
 const NS='http://www.w3.org/2000/svg';
 const el=(t,a,x)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e;};
-const CLS={mgmt:'#63d0ff',lan:'#46e0a4',srv:'#ffc451',adsb:'#ff9d5c',iot:'#ff5f6d',guest:'#8b7bff',dmz:'#ff9d5c',unknown:'#8899aa'};
+const CLS={gen5:'#c98bff',gen4:'#63d0ff',gen3:'#46e0a4'};
 
-let TOPO=null, tsOn=false, flowOn=true, selected=null, dash=0;
+let TOPO=null;                 // {name,generated,nodes:[...]}
+const view={k:1,tx:0,ty:0};
+let TOPOS=[], activeId=null, laidOut=false;
 
-async function load(){
+// ================= SIDEBAR =================
+async function loadList(){
+  try{ const r=await fetch('api/list?_='+Date.now()); TOPOS=r.ok?await r.json():[]; }
+  catch(e){ TOPOS=[]; }
+  renderList();
+  if(!activeId && TOPOS.length) selectTopo(TOPOS[0].id);
+  else if(!TOPOS.length){ TOPO=null; showErr('no topologies yet.<br><br>hit <b>GENERATE</b> to map this PC, or run<br><code>python make_pc_topology.py</code>'); }
+}
+function renderList(){
+  const list=document.getElementById('list');list.innerHTML='';
+  if(!TOPOS.length){ list.innerHTML='<div class="empty">no topologies yet.<br><br>hit GENERATE, or run<br><code>python make_pc_topology.py</code></div>'; return; }
+  TOPOS.forEach(t=>{
+    const d=document.createElement('div');
+    d.className='item'+(t.id===activeId?' active':'');
+    const when=(t.generated||'').replace('T',' ').slice(0,16);
+    d.innerHTML=`<button class="del" title="delete">×</button><div class="nm">${t.name||t.id}</div><div class="mt">${t.modules||0} modules · ${when}</div>`;
+    d.onclick=e=>{ if(e.target.classList.contains('del'))return; selectTopo(t.id); };
+    d.querySelector('.del').onclick=e=>{e.stopPropagation();delTopo(t);};
+    list.appendChild(d);
+  });
+}
+async function selectTopo(id){
+  activeId=id; renderList();
   try{
-    const r=await fetch('topology.json?_='+Date.now());
+    const r=await fetch('t/'+id+'.json?_='+Date.now());
     if(!r.ok) throw new Error('HTTP '+r.status);
     TOPO=await r.json();
     document.getElementById('err').style.display='none';
-    prep();
-  }catch(e){
-    const err=document.getElementById('err');
-    err.style.display='flex';
-    err.innerHTML='could not load topology.json<br><br>run <code>python make_topology.py</code> '+
-      'then serve this folder:<br><code>python renderers/html/serve.py</code><br><br>('+e.message+')';
-  }
+    document.getElementById('title').innerHTML=spaced(TOPO.name||'PC FABRIC');
+    document.getElementById('subtitle').textContent=(TOPO.nodes||[]).length+' modules · PCIe fabric · simulated telemetry';
+    laidOut=false; layout(); fit();
+  }catch(e){ showErr('could not load '+id+'.json ('+e.message+')'); }
 }
-
-const WAN={x:170,y:70}, FW={x:700,y:70}, SW={x:700,y:180};
-const cols=[250,700,1150], rows=[300,600];
-const zoneW=400, zoneHdr=52, devH=44, pad=14;
-
-function prep(){
-  const zones=(TOPO.zones||[]).slice();
-  // group nodes by vlan
-  const byV={};
-  (TOPO.nodes||[]).forEach(n=>{(byV[n.vlan]=byV[n.vlan]||[]).push(n);});
-  // build zone render objects (only zones that have nodes, plus any defined)
-  const vids=new Set(zones.map(z=>z.vid));
-  Object.keys(byV).forEach(v=>{ if(v!=='null'&&!vids.has(+v)){ zones.push({vid:+v,name:'VLAN'+v,subnet:'',policy:'',cls:'unknown'});}});
-  ZONES=zones.filter(z=>byV[z.vid]&&byV[z.vid].length).slice(0,6);
-  ZONES.forEach((z,i)=>{
-    z.cx=cols[i%3]; z.top=rows[Math.floor(i/3)]; z.x=z.cx-zoneW/2;
-    z.dev=byV[z.vid]||[];
-    const rowsN=Math.max(1,Math.ceil(z.dev.length/2));
-    z.h=zoneHdr+rowsN*(devH+10)+pad;
-    z.dev.forEach((d,j)=>{
-      const c=j%2,r=Math.floor(j/2);
-      d._w=(zoneW-pad*3)/2; d._x=z.x+pad+c*(d._w+pad); d._y=z.top+zoneHdr+r*(devH+10);
-      d._cls=z.cls; d._cx=d._x+d._w/2; d._cy=d._y+devH/2;
-      d._load=0.1+Math.random()*0.4;
-    });
-  });
-  ALLDEV=ZONES.flatMap(z=>z.dev);
-  document.getElementById('tag').textContent=(TOPO.nodes||[]).length+' nodes · '+ZONES.length+' VLANs · L3 core';
-  document.getElementById('hosts').textContent=(TOPO.nodes||[]).filter(n=>n.online).length;
-  document.getElementById('vlans').textContent=ZONES.length;
-  document.getElementById('gen').textContent=(TOPO.generated||'—').replace('T',' ').slice(0,16);
+async function delTopo(t){
+  if(!confirm(`Delete "${t.name||t.id}"?`))return;
+  try{ await fetch('api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:t.id})}); }catch(e){}
+  if(activeId===t.id){ activeId=null; TOPO=null; }
+  await loadList();
 }
-let ZONES=[], ALLDEV=[];
+document.getElementById('addbtn').onclick=async e=>{
+  const name=prompt('Name this topology:', 'my desktop pc');
+  if(!name)return;
+  const btn=e.target; btn.disabled=true; btn.textContent='… READING HARDWARE';
+  try{
+    const r=await fetch('api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
+    activeId=data.id; await loadList();
+  }catch(err){ showErr('generate failed:<br><br><code>'+err.message+'</code>'); }
+  finally{ btn.disabled=false; btn.innerHTML='+ &nbsp; G E N E R A T E'; }
+};
+function spaced(s){return (s||'').toUpperCase().split('').join(' ');}
+function showErr(html){const err=document.getElementById('err');err.style.display='flex';err.innerHTML=html;svg.innerHTML='';}
 
-function draw(){
-  if(!TOPO){return;}
+// ================= LAYOUT (tree columns) =================
+function layout(){
+  if(!TOPO||laidOut)return;
+  const nodes=TOPO.nodes, byId=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  const depth=n=>{let d=0,c=n,g=0;while(c.parent&&byId[c.parent]&&g++<20){d++;c=byId[c.parent];}return d;};
+  // children grouped under each parent, in node order
+  const kids={}; nodes.forEach(n=>{ (kids[n.parent]=kids[n.parent]||[]).push(n); });
+  // tidy tree: DFS gives each leaf a sequential slot; parents centre on their
+  // children's span. A tree laid out this way is planar -> links never cross.
+  const slotOf={}; let slot=0;
+  (function dfs(n){
+    if(!n||slotOf[n.id]!=null)return;
+    const ch=kids[n.id]||[];
+    if(!ch.length){ slotOf[n.id]=slot++; }
+    else { ch.forEach(dfs); slotOf[n.id]=(slotOf[ch[0].id]+slotOf[ch[ch.length-1].id])/2; }
+  })(nodes.find(n=>!n.parent));
+  nodes.forEach(n=>{ if(slotOf[n.id]==null) slotOf[n.id]=slot++; });   // orphans, just in case
+  const COLW=250, ROWH=48;                     // fixed spacing; fit() zooms to frame it
+  nodes.forEach(n=>{ n.x=depth(n)*COLW; n.y=slotOf[n.id]*ROWH; });
+  laidOut=true;
+}
+function fit(){
+  if(!TOPO)return;
+  const b=document.getElementById('stage').getBoundingClientRect();
+  const xs=TOPO.nodes.map(n=>n.x),ys=TOPO.nodes.map(n=>n.y);
+  const minx=Math.min(...xs)-90,maxx=Math.max(...xs)+90,miny=Math.min(...ys)-40,maxy=Math.max(...ys)+40;
+  const bw=maxx-minx,bh=maxy-miny;
+  view.k=Math.min(b.width/bw,b.height/bh,1.6);
+  view.tx=(b.width-bw*view.k)/2-minx*view.k; view.ty=(b.height-bh*view.k)/2-miny*view.k;
+  applyView();
+}
+function applyView(){document.getElementById('zpct').textContent=Math.round(view.k*100)+'%';}
+function tcol(t){return t>=64?'#ff5f6d':t>=55?'#ffc451':'#46e0a4';}
+
+// ================= RENDER =================
+function render(){
+  if(!TOPO){svg.innerHTML='';return;}
+  const nodes=TOPO.nodes, byId=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  const b=document.getElementById('stage').getBoundingClientRect();
+  svg.setAttribute('viewBox',`0 0 ${b.width} ${b.height}`);
   svg.innerHTML='';
   const defs=el('defs');
-  defs.innerHTML='<filter id="g" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
+  defs.innerHTML=`<filter id="g" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
   svg.appendChild(defs);
+  const world=el('g',{transform:`translate(${view.tx} ${view.ty}) scale(${view.k})`});
+  svg.appendChild(world);
+  if(snapGuide){                 // faint magnetic-alignment guides while dragging
+    const xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y);
+    const x0=Math.min(...xs)-120,x1=Math.max(...xs)+120,y0=Math.min(...ys)-60,y1=Math.max(...ys)+60;
+    if(snapGuide.y!=null)world.appendChild(el('line',{x1:x0,y1:snapGuide.y,x2:x1,y2:snapGuide.y,stroke:'#63d0ff','stroke-width':0.6,'stroke-dasharray':'4 6',opacity:.4}));
+    if(snapGuide.x!=null)world.appendChild(el('line',{x1:snapGuide.x,y1:y0,x2:snapGuide.x,y2:y1,stroke:'#63d0ff','stroke-width':0.6,'stroke-dasharray':'4 6',opacity:.4}));
+  }
+  nodes.forEach(n=>{ if(n.parent&&byId[n.parent]) drawLink(world,byId[n.parent],n,n.cls||'gen3',n.load,n.link); });
+  nodes.forEach(n=>card(world,n,n.kind==='cpu'));
+}
+function drawLink(world,p,c,cls,load,label){
+  load=load||.1; const midx=(p.x+c.x)/2;
+  const d=`M ${p.x+80} ${p.y} C ${midx} ${p.y}, ${midx} ${c.y}, ${c.x-80} ${c.y}`;
+  world.appendChild(el('path',{d,fill:'none',stroke:'#173553','stroke-width':1.2}));
+  world.appendChild(el('path',{d,fill:'none',stroke:CLS[cls]||CLS.gen3,'stroke-width':1+load*2.6,
+    'stroke-dasharray':'3 11','stroke-dashoffset':c.dash||0,'stroke-linecap':'round',opacity:0.3+load*0.55,filter:'url(#g)'}));
+  if(label){ const lx=(p.x+c.x)/2, ly=(p.y+c.y)/2-4;
+    const t=el('text',{x:lx,y:ly,'font-size':7.5,fill:CLS[cls]||'#63d0ff','text-anchor':'middle',opacity:.75,'letter-spacing':'.04em'},label);
+    world.appendChild(t); }
+}
+function card(world,n,big){
+  const w=160,h=big?42:38;
+  const isPort=n.up!==undefined, down=n.up===false, meas=measured(n);
+  const col=n.kind==='cpu'?'#63d0ff':(n.cls?CLS[n.cls]:'#63d0ff');   // colour = lane class (real), not temp
+  const ledCol=isPort?(down?'#3a4a5a':'#46e0a4'):col;
+  const g=el('g',{class:'card',transform:`translate(${n.x-w/2} ${n.y-h/2})`,opacity:down?0.5:1}); g.dataset.id=n.id;
+  g.appendChild(el('rect',{x:0,y:0,width:w,height:h,rx:3,fill:'rgba(8,20,34,.9)',stroke:down?'#3a4a5a':col,'stroke-width':big?1.4:1,'stroke-dasharray':down?'3 3':'','filter':'url(#g)'}));
+  g.appendChild(el('rect',{x:0,y:0,width:3.5,height:h,fill:down?'#3a4a5a':col}));
+  const led=el('circle',{cx:w-10,cy:10,r:3.2,fill:ledCol,filter:'url(#g)'});
+  if(isPort&&!down) led.appendChild(el('animate',{attributeName:'opacity',values:'1;.45;1',dur:'1.4s',repeatCount:'indefinite'}));
+  g.appendChild(led);
+  g.appendChild(el('text',{x:11,y:big?17:16,'font-size':big?12.5:10.5,fill:down?'#5a6a7a':'#cdeaf7','letter-spacing':'.02em'},clip(n.label,20)));
+  g.appendChild(el('text',{x:11,y:big?30:28,'font-size':8.2,fill:'#2d5f7e'},clip(n.sub||'',26)));
+  // right-side readout: link state on ports, capacity% on disks, live util% on cpu/net
+  const hasFill=n.fill!=null, val=hasFill?n.fill:(n.load||0);
+  if(isPort) g.appendChild(el('text',{x:w-9,y:big?30:28,'font-size':8.5,fill:ledCol,'text-anchor':'end'},down?'DOWN':'UP'));
+  else if(hasFill) g.appendChild(el('text',{x:w-9,y:big?30:28,'font-size':9,fill:col,'text-anchor':'end'},Math.round(n.fill*100)+'% full'));
+  else if(meas) g.appendChild(el('text',{x:w-9,y:big?30:28,'font-size':9,fill:col,'text-anchor':'end'},Math.round((n.load||0)*100)+'%'));
+  // bar: capacity for disks, live load for cpu/net
+  if((meas||hasFill)&&!down){
+    const bx=11,by=h-5,bw=w*0.4;
+    g.appendChild(el('rect',{x:bx,y:by,width:bw,height:3,rx:1.5,fill:'rgba(45,95,126,.4)'}));
+    g.appendChild(el('rect',{x:bx,y:by,width:bw*Math.min(1,val),height:3,rx:1.5,fill:col}));
+  }
+  world.appendChild(g);
+}
+function clip(s,n){s=String(s);return s.length>n?s.slice(0,n-1)+'…':s;}
 
-  spineLink(WAN.x+46,WAN.y,FW.x-64,FW.y,'#63d0ff',0.5);
-  spineLink(FW.x,FW.y+22,SW.x,SW.y-20,'#63d0ff',0.6);
-  ZONES.forEach(z=>spineLink(SW.x,SW.y+20,z.cx,z.top-2,CLS[z.cls]||'#8899aa',z._tl||0.3));
+// ================= LIVE TELEMETRY (real) =================
+let TELE={cpu:0,net_gbps:0,disk_mbps:0,nics:{}};
+async function pollTele(){
+  try{
+    const q='api/telemetry?host='+encodeURIComponent(activeId||'')+'&_='+Date.now();
+    const r=await fetch(q);
+    if(r.ok){ TELE=await r.json(); if(TELE.error)console.warn('telemetry error:',TELE.error); }
+    else console.warn('telemetry HTTP '+r.status+' — restart serve.py (stale server has no /api/telemetry route)');
+  }catch(e){ console.warn('telemetry fetch failed:',e.message); }
+}
+const norm=s=>String(s).toLowerCase().replace(/\[r\]|\(r\)|\[tm\]|\(tm\)/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+function nicLoad(n){                       // real per-adapter Gb/s -> fraction of cap
+  if(!TELE.nics)return 0;
+  if(n.iface&&TELE.nics[n.iface]!=null) return Math.min(1,TELE.nics[n.iface]/(n.cap||1)); // linux: by iface
+  const k=norm(n.label);                   // windows: by adapter description
+  for(const name in TELE.nics){ const nn=norm(name);
+    if(nn===k||nn.includes(k)||k.includes(nn)) return Math.min(1,TELE.nics[name]/(n.cap||1)); }
+  return 0;
+}
+const measured=n=>n.kind==='cpu'||n.grp==='net'||n.grp==='disk';
 
-  ZONES.forEach(z=>{
-    const col=CLS[z.cls]||'#8899aa';
-    const g=el('g');
-    g.appendChild(el('rect',{x:z.x,y:z.top,width:zoneW,height:z.h,rx:6,fill:'rgba(8,20,34,.55)',stroke:col,'stroke-width':1,'stroke-dasharray':'2 3',opacity:.9}));
-    g.appendChild(el('rect',{x:z.x,y:z.top,width:zoneW,height:34,rx:6,fill:col,opacity:.14}));
-    g.appendChild(el('rect',{x:z.x,y:z.top,width:4,height:z.h,fill:col}));
-    g.appendChild(el('text',{x:z.x+16,y:z.top+21,'font-size':13,fill:col},`VLAN ${z.vid} · ${z.name}`));
-    if(z.subnet)g.appendChild(el('text',{x:z.x+zoneW-14,y:z.top+15,'font-size':8.5,fill:'#2d5f7e','text-anchor':'end'},z.subnet));
-    if(z.policy)g.appendChild(el('text',{x:z.x+zoneW-14,y:z.top+27,'font-size':8.5,fill:col,'text-anchor':'end',opacity:.8},'▸ '+z.policy));
-    svg.appendChild(g);
-
-    z.dev.forEach(d=>{
-      const dim=selected&&selected!==d&&!(tsOn&&(d.tags||[]).includes('ts')&&(selected.tags||[]).includes('ts'))?.28:1;
-      const col2=d.online?col:'#3a4a5a';
-      const gg=el('g',{opacity:dim,style:'cursor:pointer'});
-      gg.appendChild(el('rect',{x:d._x,y:d._y,width:d._w,height:devH,rx:4,fill:'rgba(6,16,28,.92)',stroke:col2,'stroke-width':1}));
-      gg.appendChild(el('rect',{x:d._x,y:d._y,width:3,height:devH,fill:col2}));
-      const led=el('circle',{cx:d._x+d._w-11,cy:d._y+12,r:3.4,fill:d.online?col:'#ff5f6d',filter:'url(#g)'});
-      if(!d.online)led.appendChild(el('animate',{attributeName:'opacity',values:'1;.2;1',dur:'1s',repeatCount:'indefinite'}));
-      gg.appendChild(led);
-      gg.appendChild(el('text',{x:d._x+11,y:d._y+18,'font-size':11,fill:d.online?'#cdeaf7':'#5a6a7a'},d.name));
-      gg.appendChild(el('text',{x:d._x+11,y:d._y+31,'font-size':8,fill:'#2d5f7e'},d.vendor||d.kind||d.ip||''));
-      const bx=d._x+11,by=d._y+devH-7,bw=d._w*0.5;
-      gg.appendChild(el('rect',{x:bx,y:by,width:bw,height:3,rx:1.5,fill:'rgba(45,95,126,.4)'}));
-      if(d.online)gg.appendChild(el('rect',{x:bx,y:by,width:bw*d._load,height:3,rx:1.5,fill:col}));
-      if((d.tags||[]).includes('ts'))gg.appendChild(el('text',{x:d._x+d._w-11,y:d._y+devH-8,'font-size':8,fill:tsOn?'#b9aeff':'#4a4a6a','text-anchor':'end'},'◇ts'));
-      gg.addEventListener('click',e=>{e.stopPropagation();selected=selected===d?null:d;draw();});
-      svg.appendChild(gg);
+// ================= ANIMATION =================
+function tick(){
+  if(TOPO){
+    const nodes=TOPO.nodes;
+    nodes.forEach(n=>{
+      if(n.dash==null)n.dash=0;
+      let load;                            // real where measurable, else gentle ambient shimmer
+      if(n.kind==='cpu') load=(TELE.cpu||0)/100;
+      else if(n.grp==='net') load=(n.up===false)?0:nicLoad(n);
+      else if(n.grp==='disk') load=Math.min(1,(TELE.disk_mbps||0)/1000/(n.cap||7));
+      else { n._ph=(n._ph||Math.random()*6.28)+0.02; load=0.05+0.03*Math.sin(n._ph); }
+      n.load=load; n.dash-=1+load*4;
     });
-  });
-
-  cloud(WAN.x,WAN.y);
-  chip(FW.x,FW.y,150,44,'firewall','L3 core','#63d0ff',true);
-  chip(SW.x,SW.y,150,40,'core switch','802.1Q trunk','#63d0ff',false);
-
-  if(tsOn){
-    const ts=ALLDEV.filter(d=>(d.tags||[]).includes('ts')&&d.online);
-    for(let i=0;i<ts.length;i++)for(let j=i+1;j<ts.length;j++)
-      svg.appendChild(el('path',{d:`M ${ts[i]._cx} ${ts[i]._cy} L ${ts[j]._cx} ${ts[j]._cy}`,fill:'none',stroke:'#8b7bff','stroke-width':1,'stroke-dasharray':'2 6','stroke-dashoffset':dash,opacity:.5,filter:'url(#g)'}));
-    ts.forEach(d=>svg.appendChild(el('circle',{cx:d._cx,cy:d._cy,r:5,fill:'none',stroke:'#8b7bff','stroke-width':1.2,opacity:.7})));
+    const pts=nodes.filter(n=>n.up!==undefined);
+    document.getElementById('ports').textContent=pts.filter(n=>n.up).length+'/'+pts.length;
+    document.getElementById('net').textContent=(TELE.net_gbps||0).toFixed(1);
+    document.getElementById('sto').textContent=Math.round(TELE.disk_mbps||0);
+    document.getElementById('pkg').textContent=Math.round(TELE.cpu||0);
+    document.getElementById('cputemp').textContent=(TELE.cpu_temp>0)?' · '+Math.round(TELE.cpu_temp)+'°C':'';
+    const c=TELE.cpu||0, st=document.getElementById('stat');
+    if(TELE.stale){ st.textContent='OFFLINE'; st.className='warn'; }   // remote host not reporting telemetry
+    else { st.textContent=c>=85?'SATURATED':c>=55?'BUSY':'NOMINAL'; st.className=c>=85?'crit':c>=55?'warn':''; }
+    render();
   }
-
-  function spineLink(x1,y1,x2,y2,col,load){
-    const d=`M ${x1} ${y1} C ${x1} ${(y1+y2)/2}, ${x2} ${(y1+y2)/2}, ${x2} ${y2}`;
-    svg.appendChild(el('path',{d,fill:'none',stroke:'#173553','stroke-width':1.4}));
-    if(flowOn)svg.appendChild(el('path',{d,fill:'none',stroke:col,'stroke-width':1+load*3,'stroke-dasharray':'4 10','stroke-dashoffset':dash,'stroke-linecap':'round',opacity:.3+load*.5,filter:'url(#g)'}));
-  }
-  function chip(x,y,w,h,t1,t2,col,big){
-    const g=el('g',{transform:`translate(${x-w/2},${y-h/2})`});
-    g.appendChild(el('rect',{x:0,y:0,width:w,height:h,rx:4,fill:'rgba(8,20,34,.95)',stroke:col,'stroke-width':big?1.4:1,filter:'url(#g)'}));
-    g.appendChild(el('rect',{x:0,y:0,width:4,height:h,fill:col}));
-    g.appendChild(el('text',{x:12,y:h/2-2,'font-size':12.5,fill:'#cdeaf7'},t1));
-    g.appendChild(el('text',{x:12,y:h/2+13,'font-size':8.2,fill:'#2d5f7e'},t2));
-    svg.appendChild(g);
-  }
-  function cloud(x,y){
-    const g=el('g');
-    g.appendChild(el('ellipse',{cx:x,cy:y,rx:44,ry:24,fill:'rgba(8,20,34,.9)',stroke:'#2d5f7e','stroke-width':1.2}));
-    g.appendChild(el('text',{x,y:y-2,'font-size':11,fill:'#63d0ff','text-anchor':'middle'},'WAN'));
-    g.appendChild(el('text',{x,y:y+11,'font-size':8,fill:'#2d5f7e','text-anchor':'middle'},'uplink'));
-    svg.appendChild(g);
-  }
+  requestAnimationFrame(tick);
 }
 
-function anim(){
-  dash-=1.4;
-  ZONES.forEach(z=>{z._tl=(z._tl||0.3)+(Math.random()-.5)*.1;z._tl=Math.max(.05,Math.min(1,z._tl));
-    z.dev.forEach(d=>{if(d.online){d._load+=(Math.random()-.5)*.15;d._load=Math.max(.02,Math.min(1,d._load));}});});
-  draw();
-  requestAnimationFrame(anim);
+// ================= PAN / ZOOM / DRAG =================
+const stage=document.getElementById('stage');
+let drag=null;
+function screenPt(e){const r=stage.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+stage.addEventListener('mousedown',e=>{
+  const p=screenPt(e); const cardEl=e.target.closest('.card');
+  if(cardEl&&TOPO){ const n=TOPO.nodes.find(x=>x.id===cardEl.dataset.id); drag={type:'node',n,sx:p.x,sy:p.y,ox:n.x,oy:n.y}; }
+  else { drag={type:'pan',sx:p.x,sy:p.y,tx:view.tx,ty:view.ty}; stage.classList.add('panning'); }
+});
+// magnetic align: snap a dragged card to share a nearby card's row (y) / column (x)
+let snapGuide=null;
+function magnetize(n){
+  const SNAP=16; let ny=null,dy=SNAP, nx=null,dx=SNAP;
+  for(const m of TOPO.nodes){ if(m===n)continue;
+    const ay=Math.abs(m.y-n.y); if(ay<dy){dy=ay;ny=m.y;}
+    const ax=Math.abs(m.x-n.x); if(ax<dx){dx=ax;nx=m.x;}
+  }
+  if(ny!=null)n.y=ny; if(nx!=null)n.x=nx;
+  snapGuide=(ny!=null||nx!=null)?{x:nx,y:ny}:null;
 }
+// on drop: if the card overlaps another, snap it into that card's column, stacked
+// directly above or below (the side it came from), then step to the first free slot
+function settle(n,startY){
+  const ROWH=48, OVX=140, OVY=30;
+  let t=null,best=1e9;
+  for(const m of TOPO.nodes){ if(m===n)continue;
+    const dx=Math.abs(m.x-n.x), dy=Math.abs(m.y-n.y);
+    if(dx<OVX&&dy<OVY){ const d=dy*4+dx; if(d<best){best=d;t=m;} }
+  }
+  if(!t)return;
+  n.x=t.x;                                   // lock to the overlapped card's column
+  const dir=(startY<=t.y)?-1:1;              // came from above -> above, else below
+  n.y=t.y+dir*ROWH;
+  const taken=y=>TOPO.nodes.some(m=>m!==n&&Math.abs(m.x-n.x)<OVX&&Math.abs(m.y-y)<OVY);
+  let guard=0; while(taken(n.y)&&guard++<60) n.y+=dir*ROWH;
+}
+window.addEventListener('mousemove',e=>{
+  if(!drag)return; const p=screenPt(e);
+  if(drag.type==='pan'){ view.tx=drag.tx+(p.x-drag.sx); view.ty=drag.ty+(p.y-drag.sy); }
+  else{ drag.n.x=drag.ox+(p.x-drag.sx)/view.k; drag.n.y=drag.oy+(p.y-drag.sy)/view.k; magnetize(drag.n); }
+});
+window.addEventListener('mouseup',()=>{
+  if(drag&&drag.type==='node') settle(drag.n,drag.oy);
+  drag=null;snapGuide=null;stage.classList.remove('panning');
+});
+stage.addEventListener('wheel',e=>{
+  e.preventDefault(); const p=screenPt(e);
+  const f=e.deltaY<0?1.12:1/1.12; const nk=Math.max(0.25,Math.min(4,view.k*f)), r=nk/view.k;
+  view.tx=p.x-(p.x-view.tx)*r; view.ty=p.y-(p.y-view.ty)*r; view.k=nk; applyView();
+},{passive:false});
+function zoomBtn(f){const b=stage.getBoundingClientRect(),cx=b.width/2,cy=b.height/2;
+  const nk=Math.max(0.25,Math.min(4,view.k*f)),r=nk/view.k;
+  view.tx=cx-(cx-view.tx)*r;view.ty=cy-(cy-view.ty)*r;view.k=nk;applyView();}
+document.getElementById('zin').onclick=()=>zoomBtn(1.2);
+document.getElementById('zout').onclick=()=>zoomBtn(1/1.2);
+document.getElementById('zfit').onclick=fit;
+window.addEventListener('resize',()=>{if(TOPO&&laidOut)fit();});
 
-document.getElementById('tsBtn').addEventListener('click',e=>{tsOn=!tsOn;e.target.classList.toggle('on',tsOn);});
-document.getElementById('flowBtn').addEventListener('click',e=>{flowOn=!flowOn;e.target.classList.toggle('on',flowOn);e.target.textContent='≈ FLOW: '+(flowOn?'ON':'OFF');});
-document.getElementById('reloadBtn').addEventListener('click',load);
-svg.addEventListener('click',()=>{if(selected){selected=null;draw();}});
-
-load();
-setInterval(load,30000);
-anim();
+// ================= BOOT =================
+loadList();
+setInterval(loadList,30000);
+pollTele(); setInterval(pollTele,2500);   // real CPU/net/disk telemetry
+tick();
 </script>
 </body>
 </html>

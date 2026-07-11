@@ -1,39 +1,220 @@
 #!/usr/bin/env python3
-"""Serve the HTML dashboard + out/topology.json on http://localhost:8770.
+"""Serve the topology dashboard + a store of saved topologies on :8770.
 
 Browsers block fetch() over file://, so the dashboard needs a real HTTP origin.
-This serves the renderers/html/ folder and symlinks/copies topology.json in.
+This serves renderers/html/ plus a tiny API over out/topologies/*.json:
 
-    python renderers/html/serve.py [--port 8770] [--topo out/topology.json]
+    GET  /api/list            -> [{id,name,generated,nodes,vlans}, ...]
+    GET  /t/<id>.json         -> a saved topology
+    POST /api/generate {name} -> run make_topology.py, save as a new topology
+    POST /api/delete   {id}   -> remove a saved topology
+
+    python renderers/html/serve.py [--port 8770]
+
+GENERATE runs make_pc_topology.py to map this PC's hardware fabric.
 """
 from __future__ import annotations
 
 import argparse
 import http.server
+import json
 import os
-import shutil
-import socketserver
+import re
+import subprocess
+import sys
+import time
+from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+STORE = os.path.join(ROOT, "out", "topologies")
+
+
+INGEST_TOKEN = os.environ.get("TOPO_TOKEN", "")   # optional shared secret for /api/ingest
+
+
+def slug(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "topology"
+    return f"{s}-{int(time.time())}"  # timestamp keeps ids unique
+
+
+def stable_slug(name: str) -> str:
+    """No timestamp — one stable entry per host, so re-pushes overwrite."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "host"
+
+
+def save_ingest(topo: dict, remote: str) -> dict:
+    """Store a topology pushed by a remote agent, keyed by its name (hostname)."""
+    name = (topo.get("name") or "host").strip()
+    tid = stable_slug(name)
+    topo["name"] = name
+    topo["source"] = remote
+    os.makedirs(STORE, exist_ok=True)
+    with open(os.path.join(STORE, tid + ".json"), "w", encoding="utf-8") as fh:
+        json.dump(topo, fh, indent=2)
+    return {"id": tid, "name": name}
+
+
+def entry(path: str) -> dict:
+    """One sidebar list row from a saved file (cheap read, tolerates junk)."""
+    with open(path, encoding="utf-8") as fh:
+        d = json.load(fh)
+    return {
+        "id": os.path.splitext(os.path.basename(path))[0],
+        "name": d.get("name") or os.path.splitext(os.path.basename(path))[0],
+        "generated": d.get("generated", ""),
+        "modules": len(d.get("nodes", [])),
+    }
+
+
+def list_topos() -> list[dict]:
+    if not os.path.isdir(STORE):
+        return []
+    out = []
+    for f in sorted(os.listdir(STORE)):
+        if f.endswith(".json"):
+            try:
+                out.append(entry(os.path.join(STORE, f)))
+            except Exception:
+                pass  # skip unreadable/corrupt files rather than 500
+    out.sort(key=lambda e: e["generated"], reverse=True)
+    return out
+
+
+# pick the collector for whatever OS the dashboard is served from
+GENERATOR = "make_pc_topology.py" if sys.platform.startswith("win") else "make_linux_topology.py"
+
+
+def generate(name: str) -> dict:
+    """Read this host's hardware fabric and save it as a new topology."""
+    tid = slug(name)
+    os.makedirs(STORE, exist_ok=True)
+    out = os.path.join(STORE, tid + ".json")
+    r = subprocess.run(
+        [sys.executable, GENERATOR, "--out", out, "--name", name],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    if not os.path.exists(out):
+        raise RuntimeError((r.stderr or r.stdout or f"{GENERATOR} produced nothing").strip()[-800:])
+    return {"id": tid, "name": name}
+
+
+sys.path.insert(0, ROOT)    # repo root — where telemetry.py and the generators live
+import telemetry as _tele   # noqa: E402  shared local-metrics sampler
+
+_tele_cache = {"t": 0.0, "data": dict(_tele.ZERO)}
+_host_tele: dict[str, dict] = {}   # host id -> {"t": monotonic, "data": {...}}
+FRESH = 15.0                       # seconds a pushed sample stays "live"
+
+
+def telemetry_local() -> dict:
+    """This (server) machine's live metrics, cached briefly."""
+    if time.monotonic() - _tele_cache["t"] < 1.5:
+        return _tele_cache["data"]
+    data = _tele.sample()
+    _tele_cache.update(t=time.monotonic(), data=data)
+    return data
+
+
+def _is_remote(tid: str) -> bool:
+    """A topology carrying a 'source' field was pushed by a remote agent."""
+    fp = os.path.join(STORE, tid + ".json")
+    try:
+        with open(fp, encoding="utf-8") as fh:
+            return "source" in json.load(fh)
+    except OSError:
+        return False
+
+
+def host_telemetry(tid: str) -> dict:
+    """Telemetry for the selected host: its pushed sample if fresh, else the
+    server's own metrics for a local topology, else stale zeros for a remote
+    host that isn't reporting."""
+    h = _host_tele.get(tid)
+    if h and time.monotonic() - h["t"] < FRESH:
+        return {**h["data"], "live": True}
+    if not _is_remote(tid):
+        return {**telemetry_local(), "live": True}
+    return {**_tele.ZERO, "stale": True}
+
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, directory=HERE, **kw)
+
+    def _send(self, code: int, obj) -> None:
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _body(self) -> dict:
+        n = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(n) or b"{}")
+
+    def do_GET(self):
+        if self.path.split("?")[0] == "/api/list":
+            return self._send(200, list_topos())
+        if self.path.split("?")[0] == "/api/telemetry":
+            host = parse_qs(urlparse(self.path).query).get("host", [""])[0]
+            try:
+                return self._send(200, host_telemetry(host) if host else telemetry_local())
+            except Exception as e:
+                return self._send(200, {**_tele.ZERO, "error": str(e)})
+        if self.path.startswith("/t/"):
+            tid = os.path.basename(self.path.split("?")[0])[:-5]  # strip .json
+            fp = os.path.join(STORE, tid + ".json")
+            if not os.path.isfile(fp):
+                return self._send(404, {"error": "not found"})
+            with open(fp, encoding="utf-8") as fh:
+                return self._send(200, json.load(fh))
+        return super().do_GET()
+
+    def do_POST(self):
+        try:
+            if self.path == "/api/generate":
+                name = (self._body().get("name") or "topology").strip()
+                return self._send(200, generate(name))
+            if self.path == "/api/delete":
+                tid = os.path.basename(self._body().get("id", ""))
+                fp = os.path.join(STORE, tid + ".json")
+                if os.path.isfile(fp):
+                    os.remove(fp)
+                return self._send(200, {"ok": True})
+            if self.path == "/api/ingest":
+                if INGEST_TOKEN and self.headers.get("X-Token") != INGEST_TOKEN:
+                    return self._send(403, {"error": "bad or missing token"})
+                topo = self._body()
+                if not isinstance(topo, dict) or not topo.get("nodes"):
+                    return self._send(400, {"error": "body must be a topology with a 'nodes' array"})
+                return self._send(200, save_ingest(topo, self.client_address[0]))
+            if self.path == "/api/telemetry":
+                if INGEST_TOKEN and self.headers.get("X-Token") != INGEST_TOKEN:
+                    return self._send(403, {"error": "bad or missing token"})
+                b = self._body()
+                hid = stable_slug(b.get("host", ""))
+                if not hid:
+                    return self._send(400, {"error": "missing host"})
+                data = {k: b.get(k, z) for k, z in _tele.ZERO.items()}
+                _host_tele[hid] = {"t": time.monotonic(), "data": data}
+                return self._send(200, {"ok": True, "host": hid})
+        except Exception as e:
+            return self._send(500, {"error": str(e)})
+        return self._send(404, {"error": "unknown route"})
+
+    def log_message(self, *a):  # quieter console
+        pass
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8770)
-    ap.add_argument("--topo", default=os.path.join(ROOT, "out", "topology.json"))
     args = ap.parse_args()
-
-    # copy latest topology.json next to index.html so fetch() finds it
-    if os.path.exists(args.topo):
-        shutil.copy(args.topo, os.path.join(HERE, "topology.json"))
-    else:
-        print(f"! {args.topo} not found -- run make_topology.py first")
-
-    os.chdir(HERE)
-    handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", args.port), handler) as httpd:
-        print(f"serving dashboard on http://localhost:{args.port}  (Ctrl-C to stop)")
+    os.makedirs(STORE, exist_ok=True)
+    with http.server.ThreadingHTTPServer(("", args.port), Handler) as httpd:
+        print(f"dashboard on http://localhost:{args.port}  (Ctrl-C to stop)")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
