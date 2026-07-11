@@ -12,8 +12,9 @@ DIR="${TOPO_DIR:-$HOME/topologygenerator}"
 SERVER="${TOPO_SERVER:-http://192.168.1.225:8770}"
 
 if command -v apt-get >/dev/null 2>&1; then
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq git python3 pciutils util-linux dmidecode
+  apt-get update -qq \
+    && apt-get install -y -qq git python3 pciutils util-linux dmidecode \
+    || echo "warn: dependency install failed — run as root, or install: git python3 pciutils util-linux dmidecode"
 else
   echo "warn: no apt-get — ensure git, python3, pciutils, util-linux, dmidecode are installed"
 fi
