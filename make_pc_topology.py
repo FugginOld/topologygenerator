@@ -123,6 +123,40 @@ def classify(name: str, cls: str) -> dict:
     return {"cls": "gen3", "cap": 0, "grp": None}       # structural PCH/CPU function
 
 
+# Common PCI/USB vendor IDs — enough to name most parts; unknown falls back to
+# the raw hex id, which is still specific. (Full pci.ids is huge; this isn't it.)
+VENDORS = {
+    "8086": "Intel", "8087": "Intel", "1022": "AMD", "1002": "AMD (ATI)",
+    "10de": "NVIDIA", "10ec": "Realtek", "0bda": "Realtek", "14e4": "Broadcom",
+    "168c": "Qualcomm Atheros", "1969": "Qualcomm Atheros", "17cb": "Qualcomm",
+    "144d": "Samsung", "1c5c": "SK Hynix", "1e0f": "KIOXIA", "15b7": "SanDisk/WD",
+    "1987": "Phison", "126f": "Silicon Motion", "2646": "Kingston", "0951": "Kingston",
+    "1344": "Micron", "c0a9": "Micron (Crucial)", "1b4b": "Marvell", "1cc1": "ADATA",
+    "1d6a": "Aquantia", "1106": "VIA", "1b21": "ASMedia", "174c": "ASMedia",
+    "1b73": "Fresco Logic", "104c": "Texas Instruments", "1d97": "Shenzhen Longsys",
+}
+
+
+def hwmeta(iid: str, cls: str, extra: dict) -> dict:
+    """Real per-device identity pulled from the PnP InstanceId: vendor, device id,
+    revision (PCI VEN/DEV/REV or USB VID/PID). Non-generic, straight from silicon."""
+    m, up = {}, iid.upper()
+    ven = re.search(r"VEN_([0-9A-F]{4})", up) or re.search(r"VID_([0-9A-F]{4})", up)
+    dev = re.search(r"DEV_([0-9A-F]{4})", up) or re.search(r"PID_([0-9A-F]{4})", up)
+    rev = re.search(r"REV_([0-9A-F]{2})", up)
+    if ven:
+        v = ven.group(1).lower()
+        m["vendor"] = VENDORS.get(v, "0x" + v)
+    if dev:
+        m["device id"] = "0x" + dev.group(1).lower()
+    if rev:
+        m["revision"] = "0x" + rev.group(1).lower()
+    if cls:
+        m["class"] = cls
+    m.update(extra)
+    return m
+
+
 def probe() -> list[str]:
     r = subprocess.run(["powershell.exe", "-NoProfile", "-Command", PS],
                        capture_output=True, text=True)
@@ -223,6 +257,19 @@ def build(lines: list[str]) -> list[dict]:
                 frac, used, tot = fill[label]
                 node["fill"] = frac
                 node["sub"] = f"{used}/{tot}GB used"
+        extra = {}
+        if cls == "DiskDrive":
+            if label in size:
+                bt, _, sz = size[label].partition(" · ")
+                extra["bus type"] = bt
+                if sz:
+                    extra["capacity"] = sz
+            if label in fill:
+                frac, used, tot = fill[label]
+                extra["used"] = f"{used}/{tot} GB ({round(frac*100)}%)"
+        m = hwmeta(iid, cls, extra)
+        if m:
+            node["meta"] = m
         if cls == "DiskDrive" and ctrl_iid:
             node["_parent_iid"] = ctrl_iid
         else:
@@ -267,7 +314,8 @@ def build(lines: list[str]) -> list[dict]:
                                       "cls": "gen5", "parent": imc_id, "kind": "hub", "cap": 0})
             ddr = DDR.get(str(mtype), "DDR")
             add({"label": f"{gb}GB {ddr}-{cfg}", "sub": loc, "cls": "gen5",
-                 "parent": chan_ids[chan], "kind": "leaf", "cap": 38, "grp": "mem", "link": ddr})
+                 "parent": chan_ids[chan], "kind": "leaf", "cap": 38, "grp": "mem", "link": ddr,
+                 "meta": {"type": ddr, "speed": f"{cfg} MT/s", "size": f"{gb} GB", "slot": loc}})
 
     for mon in mons:
         add({"label": mon or "Display", "sub": "monitor", "cls": "gen4",
