@@ -1,5 +1,7 @@
 # topologygenerator
 
+[![CI](https://github.com/FugginOld/topologygenerator/actions/workflows/ci.yml/badge.svg)](https://github.com/FugginOld/topologygenerator/actions/workflows/ci.yml)
+
 Two topology tools in one repo:
 
 1. **Network topology** — auto-discover a homelab network from live sources,

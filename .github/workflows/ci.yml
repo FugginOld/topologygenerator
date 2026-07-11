@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]   # Debian stable + latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Byte-compile all Python
+        run: python -m compileall -q .
+      - name: Pipeline test (fixtures, no network)
+        run: python tests/test_pipeline.py
+      - name: Linux collector self-test
+        run: python make_linux_topology.py --selftest
+
+  static:
+    name: shell + dashboard JS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax
+        run: for f in *.sh; do echo "checking $f"; bash -n "$f"; done
+      - name: ShellCheck (advisory)
+        continue-on-error: true
+        run: shellcheck *.sh
+      - name: Dashboard JS syntax
+        run: |
+          python3 - <<'PY'
+          s = open("renderers/html/index.html", encoding="utf-8").read()
+          js = s[s.index("<script>") + 8 : s.rindex("</script>")]
+          open("dash.tmp.js", "w", encoding="utf-8").write(js)
+          print(f"extracted {len(js)} chars")
+          PY
+          node --check dash.tmp.js
+      - name: PowerShell files must be ASCII (PS 5.1 reads BOM-less files as ANSI)
+        run: |
+          python3 - <<'PY'
+          import glob, sys
+          bad = []
+          for f in glob.glob("*.ps1"):
+              data = open(f, "rb").read()
+              hits = [(i, b) for i, b in enumerate(data) if b > 127]
+              if hits:
+                  bad.append((f, hits[:5]))
+          if bad:
+              for f, hits in bad:
+                  print(f"::error file={f}::non-ASCII bytes at offsets {[h[0] for h in hits]} - use ASCII in .ps1")
+              sys.exit(1)
+          print("all .ps1 files are ASCII")
+          PY
+
+  powershell:
+    name: powershell 5.1 parse
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse .ps1 with Windows PowerShell 5.1
+        shell: powershell        # 5.1 Desktop edition — matches what users run
+        run: |
+          $fail = $false
+          Get-ChildItem -Filter *.ps1 | ForEach-Object {
+            $e = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e) | Out-Null
+            if ($e) {
+              $fail = $true
+              $e | ForEach-Object { Write-Host "::error file=$($_.Extent.File),line=$($_.Extent.StartLineNumber)::$($_.Message)" }
+            } else {
+              Write-Host "$($_.Name): OK"
+            }
+          }
+          if ($fail) { exit 1 }
