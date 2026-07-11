@@ -72,6 +72,13 @@ Installs dependencies, clones the repo, and starts reporting in one shot:
 curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | bash
 ```
 
+To label this machine's card (recommended — see **Naming** below), set
+`TOPO_NAME` before the pipe:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_NAME=proxmox-b bash
+```
+
 > Requires the GitHub repo to be **public**. If it's private, use the manual
 > steps below with `git clone` and your credentials.
 
@@ -86,16 +93,28 @@ apt-get install -y git python3 pciutils util-linux dmidecode
 git clone https://github.com/FugginOld/topologygenerator.git
 cd topologygenerator
 
-# 3. start reporting to the server
-./report.sh
+# 3. start reporting to the server (optionally with a name)
+./report.sh                                       # name = hostname
+./report.sh http://192.168.1.225:8770 proxmox-b   # server + name
 ```
 
-`report.sh` defaults to `http://192.168.1.225:8770`. To point elsewhere:
-`./report.sh http://OTHER-HOST:8770`.
+`report.sh` defaults to `http://192.168.1.225:8770`. Leave it running — it pushes
+live telemetry every 3s and re-scans the topology every 5 min. The machine now
+appears in the dashboard sidebar. To keep it running across reboots, see
+**Part D**.
 
-Leave it running — it pushes live telemetry every 3s and re-scans the topology
-every 5 min. The machine now appears in the dashboard sidebar. To keep it
-running across reboots, see **Part D**.
+### Naming
+
+The dashboard keeps **one card per name**, defaulting to the machine's
+**hostname**. Re-running an agent **refreshes that card in place** (so you don't
+pile up stale copies). But machines that share a hostname — common with cloned
+Proxmox/VM templates (`localhost`, `debian`, `pve`…) — would **overwrite each
+other's card**. Give each such machine a distinct name:
+
+- Linux: `./report.sh http://192.168.1.225:8770 NAME` or `TOPO_NAME=NAME ./report.sh`
+- Windows: `.\report.ps1 -Name NAME`
+
+Machines with already-unique hostnames need no name.
 
 ---
 
@@ -107,7 +126,8 @@ running across reboots, see **Part D**.
    ```powershell
    git clone https://github.com/FugginOld/topologygenerator.git
    cd topologygenerator
-   .\report.ps1
+   .\report.ps1                       # name = hostname
+   .\report.ps1 -Name workstation-1   # custom card name (see Naming, Part B)
    ```
 
    If PowerShell blocks the script, allow local scripts once:

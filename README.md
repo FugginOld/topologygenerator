@@ -1,11 +1,37 @@
 # topologygenerator
 
-Generate system and network topologies of a homelab — auto-discovered from live
-sources, normalized into one canonical model, and rendered as an animated HTML
-dashboard, a Graphviz SVG, or git-diffable Mermaid.
+Two topology tools in one repo:
+
+1. **Network topology** — auto-discover a homelab network from live sources,
+   normalize into one canonical model, render as an animated HTML dashboard,
+   Graphviz SVG, or git-diffable Mermaid. *(the original pipeline, below)*
+2. **Hardware topology + fleet dashboard** — scan each machine's real hardware
+   fabric (CPU, RAM, PCIe lanes, NVMe, NICs with link state, USB, displays) and
+   watch every machine on your network from **one live dashboard**, with per-host
+   CPU/net/disk telemetry. *See **[HOWTO.md](HOWTO.md)** for the full setup.*
 
 The repo is the **tooling**. Your actual topology (IPs, MACs, hostnames, VLAN
 policy) is a *build artifact* and is gitignored — see [Security](#security).
+
+## Hardware topology + fleet dashboard
+
+Map the real hardware of every machine on your network and watch them live:
+
+```
+   Windows PC ─┐  ./report.sh  (or report.ps1)
+   Linux box  ─┼──►  serve.py on one host  ──►  live dashboard, one card per machine
+   Proxmox    ─┘     (POST /api/ingest + telemetry)
+```
+
+- One **server** runs `python renderers/html/serve.py`; open `http://HOST:8770`.
+- Each machine runs an **agent** that scans its own hardware and pushes its
+  topology and live telemetry (`report.sh` on Linux, `report.ps1` on Windows, or
+  the `bootstrap.sh` one-liner for a fresh Debian box).
+- Scanners: `make_pc_topology.py` (Windows, PnP/CIM) and `make_linux_topology.py`
+  (Linux, sysfs/proc). Live metrics: `telemetry.py` (real CPU temp on Linux).
+
+Full step-by-step — server firewall, each reporting machine, persistence,
+naming, tokens, troubleshooting — is in **[HOWTO.md](HOWTO.md)**.
 
 ## How it works
 
@@ -69,12 +95,21 @@ commit the tooling and `config.example.yaml` (dummy values). One accidental
 ## Layout
 
 ```
-collectors/   read-only source adapters (one file per source)
+collectors/   read-only network source adapters (one file per source)
 core/         schema.py · normalize.py · enrich.py · oui.csv
-renderers/    html/ · static_svg.py · mermaid.py
-systemd/      timer + service units
+renderers/    html/ (dashboard + serve.py) · static_svg.py · mermaid.py
+systemd/      timer/service units + topology-agent.service
 tests/        fixtures + end-to-end pipeline test
-make_topology.py   orchestrator
+make_topology.py        network topology orchestrator
+
+# hardware topology + fleet dashboard (see HOWTO.md)
+make_pc_topology.py     Windows hardware scan (PnP/CIM)
+make_linux_topology.py  Linux hardware scan (sysfs/proc)
+telemetry.py            shared live CPU/net/disk/temp sampler
+agent.py                push topology + telemetry to the server
+report.sh · report.ps1  run the agent (self-updating)
+server.ps1              start the dashboard (firewall + serve.py)
+bootstrap.sh            fresh-Debian one-liner
 ```
 
 ## Tests
