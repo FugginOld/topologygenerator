@@ -89,6 +89,16 @@
   #ctxmenu .ch{padding:8px 12px 6px;font-size:8px;letter-spacing:.12em;color:var(--hud-dim);border-bottom:1px solid var(--line)}
   #ctxmenu .ci{padding:9px 12px;font-size:10px;letter-spacing:.06em;color:var(--hud);cursor:pointer;transition:.12s}
   #ctxmenu .ci:hover{background:rgba(var(--glow),.12)}
+  #notice{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(2,6,12,.55);backdrop-filter:blur(2px)}
+  #notice .nc-card{position:relative;max-width:430px;width:calc(100% - 60px);background:var(--card-fill-big);border:1px solid var(--hud);
+    border-radius:8px;box-shadow:0 14px 44px rgba(0,0,0,.6);padding:20px 22px}
+  #notice .nc-x{position:absolute;top:9px;right:12px;border:none;background:transparent;color:var(--hud-dim);font-size:18px;cursor:pointer;line-height:1}
+  #notice .nc-x:hover{color:var(--hud)}
+  #notice .nc-title{font-size:11.5px;letter-spacing:.14em;color:var(--hud);text-transform:uppercase;margin-bottom:12px;padding-right:22px;text-shadow:0 0 10px rgba(var(--glow),.4)}
+  #notice .nc-body{font-size:11px;color:var(--ink);line-height:1.85;letter-spacing:.02em}
+  #notice .nc-cmd{margin-top:9px;padding:9px 11px;background:rgba(var(--glow),.08);border:1px solid var(--line);border-radius:4px;
+    color:var(--hud);font-size:10.5px;word-break:break-all;user-select:all}
+  #notice.busy .nc-x{display:none}
 </style>
 </head>
 <body>
@@ -125,6 +135,7 @@
   <div id="stage"><svg id="svg"></svg></div>
   <div id="err"></div>
   <div id="ctxmenu"></div>
+  <div id="notice"><div class="nc-card"><button class="nc-x" title="close">×</button><div class="nc-title"></div><div class="nc-body"></div></div></div>
   <div id="zpct">100%</div>
   <div id="zoom">
     <button id="zin" title="zoom in">+</button>
@@ -491,15 +502,30 @@ function findMachine(name,ip){
   const nm=(name||'').toLowerCase();
   return TOPOS.find(t=>t.kind!=='network' && (((t.name||'').toLowerCase()===nm) || (ip&&t.ip===ip)));
 }
-function showBusy(html){const err=document.getElementById('err');err.style.display='flex';err.style.color='var(--hud)';err.innerHTML=html;svg.innerHTML='';}
+const notice=document.getElementById('notice');
+function showNotice(title,bodyHtml,busy){
+  notice.querySelector('.nc-title').textContent=title;
+  notice.querySelector('.nc-body').innerHTML=bodyHtml;
+  notice.classList.toggle('busy',!!busy);
+  notice.style.display='flex';
+}
+function hideNotice(){notice.style.display='none';}
+notice.querySelector('.nc-x').onclick=hideNotice;
+notice.addEventListener('click',e=>{ if(e.target===notice&&!notice.classList.contains('busy'))hideNotice(); });
+function fmtMsg(msg){                                // command-looking lines -> code blocks
+  return String(msg||'').split('\n').map(l=>{const t=l.trim();
+    if(!t) return '';
+    return /(^\.?\/|https?:\/\/)/.test(t)?`<div class="nc-cmd">${t}</div>`:`<div>${t}</div>`;
+  }).join('');
+}
 async function scanHost(name,ip){
-  showBusy(`scanning <b>${name}</b> (${ip}) over SSH…<br><br>this can take a few seconds`);
+  showNotice('Scanning '+name,`Contacting <b>${ip}</b> over SSH — this can take a few seconds…`,true);
   try{
     const r=await fetch('api/scan-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:ip,name})});
     const data=await r.json();
     if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
-    await loadList(); selectTopo(data.id);
-  }catch(err){ showErr('could not scan '+name+':<br><br><code>'+String(err.message).replace(/\n/g,'<br>')+'</code>'); }
+    hideNotice(); await loadList(); selectTopo(data.id);
+  }catch(err){ showNotice("Couldn't scan "+name, fmtMsg(err.message)); }
 }
 stage.addEventListener('contextmenu',e=>{
   hideCtx();                                                // clear any open menu first
