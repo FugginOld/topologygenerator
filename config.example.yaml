@@ -50,7 +50,7 @@ pingsweep:
 # unifi: pull VLANs + client/uplink topology from a UniFi gateway (UCG/UDM/UXG).
 # This is the best source for a UniFi network — knows the real VLAN layout.
 unifi:
-  enabled: false
+  enabled: true
   url: https://192.168.1.1          # the gateway itself
   site: default
   verify_tls: false                 # gateways ship a self-signed cert
