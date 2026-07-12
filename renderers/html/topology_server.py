@@ -130,6 +130,47 @@ def list_topos() -> list[dict]:
 GENERATOR = "make_pc_topology.py" if sys.platform.startswith("win") else "make_linux_topology.py"
 
 
+def _remote_scan_cfg() -> dict:
+    """remote_scan block from config.yaml, or {} (disabled) if absent/unparseable."""
+    path = os.path.join(ROOT, "config.yaml")
+    if not os.path.exists(path):
+        return {}
+    try:
+        import yaml
+        return (yaml.safe_load(open(path, encoding="utf-8")) or {}).get("remote_scan") or {}
+    except Exception:
+        return {}
+
+
+def scan_host(host: str, name: str) -> dict:
+    """SSH into a Linux host, run the hardware scanner over the pipe, ingest the
+    result as a machine card. Raises with the agent fallback if SSH isn't set up."""
+    cfg = _remote_scan_cfg()
+    agent_hint = (f"remote SSH scan is off. On {host}, run:\n"
+                  f"  ./report.sh http://{server_ip()}:8770 {name}")
+    if not cfg.get("enabled"):
+        raise RuntimeError(agent_hint)
+    user = cfg.get("user")
+    if not user:
+        raise RuntimeError("remote_scan.user not set in config.yaml")
+    opts = str(cfg.get("ssh_opts", "-o ConnectTimeout=8 -o BatchMode=yes")).split()
+    py = cfg.get("python", "python3")
+    script = os.path.join(ROOT, "make_linux_topology.py")
+    cmd = ["ssh", *opts, f"{user}@{host}", py, "-", "--stdout", "--name", name]
+    try:
+        with open(script, encoding="utf-8") as fh:
+            r = subprocess.run(cmd, stdin=fh, capture_output=True, text=True, timeout=90)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RuntimeError(f"ssh failed: {e}\n\n{agent_hint}")
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or "ssh scan failed").strip()[-400:] + f"\n\n{agent_hint}")
+    try:
+        topo = json.loads(r.stdout)
+    except ValueError:
+        raise RuntimeError("remote scan returned no JSON (is python3 on the host?)\n\n" + agent_hint)
+    return save_ingest(topo, host)   # source=host -> card shows its IP
+
+
 def generate(name: str) -> dict:
     """Read this host's hardware fabric and save it as a new topology."""
     tid = slug(name)
@@ -324,6 +365,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if self.path == "/api/generate-network":
                 subnet = (self._body().get("subnet") or "").strip() or None
                 return self._send(200, generate_network(subnet))
+            if self.path == "/api/scan-host":
+                b = self._body()
+                host = (b.get("host") or "").strip()
+                name = (b.get("name") or host).strip()
+                if not host:
+                    return self._send(400, {"error": "missing host"})
+                try:
+                    return self._send(200, scan_host(host, name))
+                except RuntimeError as e:
+                    return self._send(502, {"error": str(e)})
             if self.path == "/api/delete":
                 try:
                     fp = store_path(self._body().get("id", ""))

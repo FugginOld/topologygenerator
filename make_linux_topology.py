@@ -386,6 +386,8 @@ def main() -> None:
     ap.add_argument("--out", default=os.path.join("out", "topology_pc.json"))
     ap.add_argument("--name", default="linux server")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--stdout", action="store_true",
+                    help="write only JSON to stdout (for piping over SSH)")
     args = ap.parse_args()
     if args.selftest:
         _selftest(); return
@@ -397,6 +399,9 @@ def main() -> None:
     topo = {"name": args.name,
             "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "nodes": nodes}
+    if args.stdout:                       # clean JSON only — nothing else on stdout
+        json.dump(topo, sys.stdout)
+        return
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(topo, fh, indent=2)

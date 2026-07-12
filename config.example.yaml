@@ -63,6 +63,15 @@ unifi_snmp:
   switches:
     - {host: 10.0.10.2, community: public, version: 2c, name: core-sw01}
 
+# remote_scan: lets the dashboard right-click a Linux host in the network map and
+# build its hardware topology over SSH (needs key-based SSH + python3 on the host).
+# If off, right-click still opens an existing report or shows the agent command.
+remote_scan:
+  enabled: false
+  user: joe
+  ssh_opts: "-o ConnectTimeout=8 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+  python: python3
+
 tailscale:
   enabled: false
   binary: tailscale

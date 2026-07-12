@@ -84,6 +84,11 @@
   #zoom button:hover{border-color:var(--hud);background:rgba(var(--glow),.1);box-shadow:0 0 12px rgba(var(--glow),.15)}
   #zoom button.fit{font-size:8.5px;letter-spacing:.06em}
   #zpct{position:absolute;left:32px;bottom:38px;z-index:8;font-size:9px;color:var(--hud-dim);letter-spacing:.1em}
+  #ctxmenu{position:fixed;display:none;z-index:30;min-width:170px;background:var(--panel);border:1px solid var(--hud-dim);
+    border-radius:5px;box-shadow:0 6px 24px rgba(0,0,0,.5);overflow:hidden;backdrop-filter:blur(3px)}
+  #ctxmenu .ch{padding:8px 12px 6px;font-size:8px;letter-spacing:.12em;color:var(--hud-dim);border-bottom:1px solid var(--line)}
+  #ctxmenu .ci{padding:9px 12px;font-size:10px;letter-spacing:.06em;color:var(--hud);cursor:pointer;transition:.12s}
+  #ctxmenu .ci:hover{background:rgba(var(--glow),.12)}
 </style>
 </head>
 <body>
@@ -119,6 +124,7 @@
   </header>
   <div id="stage"><svg id="svg"></svg></div>
   <div id="err"></div>
+  <div id="ctxmenu"></div>
   <div id="zpct">100%</div>
   <div id="zoom">
     <button id="zin" title="zoom in">+</button>
@@ -228,7 +234,7 @@ document.getElementById('netbtn').onclick=async e=>{
   finally{ btn.disabled=false; btn.innerHTML='⊹ &nbsp; S C A N &nbsp; N E T W O R K'; }
 };
 function spaced(s){return (s||'').toUpperCase().split('').join(' ');}
-function showErr(html){const err=document.getElementById('err');err.style.display='flex';err.innerHTML=html;svg.innerHTML='';}
+function showErr(html){const err=document.getElementById('err');err.style.display='flex';err.style.color='var(--warn)';err.innerHTML=html;svg.innerHTML='';}
 
 // ================= LAYOUT (tree columns) =================
 function layout(){
@@ -475,6 +481,44 @@ document.getElementById('zin').onclick=()=>zoomBtn(1.2);
 document.getElementById('zout').onclick=()=>zoomBtn(1/1.2);
 document.getElementById('zfit').onclick=fit;
 window.addEventListener('resize',()=>{if(TOPO&&laidOut)fit();});
+
+// ============ RIGHT-CLICK: open/generate a machine's topology ============
+const ctx=document.getElementById('ctxmenu');
+const hideCtx=()=>{ctx.style.display='none';};
+document.addEventListener('click',hideCtx);
+document.addEventListener('contextmenu',e=>{ if(!e.target.closest('#ctxmenu'))hideCtx(); });
+stage.addEventListener('scroll',hideCtx,true);
+function findMachine(name,ip){
+  const nm=(name||'').toLowerCase();
+  return TOPOS.find(t=>t.kind!=='network' && (((t.name||'').toLowerCase()===nm) || (ip&&t.ip===ip)));
+}
+function showBusy(html){const err=document.getElementById('err');err.style.display='flex';err.style.color='var(--hud)';err.innerHTML=html;svg.innerHTML='';}
+async function scanHost(name,ip){
+  showBusy(`scanning <b>${name}</b> (${ip}) over SSH…<br><br>this can take a few seconds`);
+  try{
+    const r=await fetch('api/scan-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:ip,name})});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
+    await loadList(); selectTopo(data.id);
+  }catch(err){ showErr('could not scan '+name+':<br><br><code>'+String(err.message).replace(/\n/g,'<br>')+'</code>'); }
+}
+stage.addEventListener('contextmenu',e=>{
+  const cardEl=e.target.closest('.card');
+  if(!cardEl||!TOPO||activeId!=='network') return;         // only network-map cards
+  const n=TOPO.nodes.find(x=>x.id===cardEl.dataset.id);
+  if(!n) return;
+  const ip=(n.meta&&n.meta.ip)||n.sub||'';
+  if(!ip||['zone','wan','root','firewall'].includes(n.kind)) return;  // hosts only
+  e.preventDefault();
+  const existing=findMachine(n.label,ip);
+  ctx.innerHTML=`<div class="ch">${(n.label||ip).toUpperCase()}</div>`;
+  const add=(label,fn)=>{const d=document.createElement('div');d.className='ci';d.textContent=label;d.onclick=()=>{hideCtx();fn();};ctx.appendChild(d);};
+  if(existing) add('Open hardware report',()=>selectTopo(existing.id));
+  add(existing?'Re-scan over SSH':'Generate machine topology',()=>scanHost(n.label,ip));
+  ctx.style.left=Math.min(e.clientX,innerWidth-190)+'px';
+  ctx.style.top=Math.min(e.clientY,innerHeight-90)+'px';
+  ctx.style.display='block';
+});
 
 // ================= BOOT =================
 loadList();
