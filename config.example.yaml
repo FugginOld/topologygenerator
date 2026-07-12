@@ -54,7 +54,7 @@ unifi:
   url: https://192.168.1.1          # the gateway itself
   site: default
   verify_tls: false                 # gateways ship a self-signed cert
-  api_key: "CHANGEME"               # Settings > Control Plane > Integrations > Create API Key
+  api_key: "5a_WZWNJvVHCCp8ba6umpg6XbYjzXs1G"               # Settings > Control Plane > Integrations > Create API Key
   # username: topology              # OR a local admin account instead of an API key
   # password: "CHANGEME"
   zone_map:
