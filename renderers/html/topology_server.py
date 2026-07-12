@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import argparse
 import http.server
+import ipaddress
 import json
 import os
 import re
+import shlex
 import socket
 import subprocess
 import sys
@@ -145,6 +147,12 @@ def _remote_scan_cfg() -> dict:
 def scan_host(host: str, name: str) -> dict:
     """SSH into a Linux host, run the hardware scanner over the pipe, ingest the
     result as a machine card. Raises with the agent fallback if SSH isn't set up."""
+    # host must be a literal IP — blocks ssh option injection (e.g. a leading
+    # '-' becoming -oProxyCommand=...). Network nodes always carry an IP.
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        raise RuntimeError("invalid host — must be an IP address")
     cfg = _remote_scan_cfg()
     agent_hint = (f"remote SSH scan is off. On {host}, run:\n"
                   f"  ./report.sh http://{server_ip()}:8770 {name}")
@@ -156,7 +164,10 @@ def scan_host(host: str, name: str) -> dict:
     opts = str(cfg.get("ssh_opts", "-o ConnectTimeout=8 -o BatchMode=yes")).split()
     py = cfg.get("python", "python3")
     script = os.path.join(ROOT, "make_linux_topology.py")
-    cmd = ["ssh", *opts, f"{user}@{host}", py, "-", "--stdout", "--name", name]
+    # ssh joins the remote args and runs them through the host's shell, so the
+    # remote command is built shell-quoted; user/py/opts come from trusted config.
+    remote = f"{shlex.quote(str(py))} - --stdout --name {shlex.quote(name)}"
+    cmd = ["ssh", *opts, f"{user}@{host}", remote]
     try:
         with open(script, encoding="utf-8") as fh:
             r = subprocess.run(cmd, stdin=fh, capture_output=True, text=True, timeout=90)
