@@ -416,6 +416,7 @@ const stage=document.getElementById('stage');
 let drag=null, held=null, pinned=null;   // held = pressed card (preview); pinned = click-toggled open
 function screenPt(e){const r=stage.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
 stage.addEventListener('mousedown',e=>{
+  if(e.button!==0) return;                 // left-button only; right-click = context menu
   const p=screenPt(e); const cardEl=e.target.closest('.card');
   if(cardEl&&TOPO){ const n=TOPO.nodes.find(x=>x.id===cardEl.dataset.id); held=n.id; drag={type:'node',n,sx:p.x,sy:p.y,ox:n.x,oy:n.y}; }
   else { drag={type:'pan',sx:p.x,sy:p.y,tx:view.tx,ty:view.ty}; stage.classList.add('panning'); }
@@ -485,9 +486,7 @@ window.addEventListener('resize',()=>{if(TOPO&&laidOut)fit();});
 // ============ RIGHT-CLICK: open/generate a machine's topology ============
 const ctx=document.getElementById('ctxmenu');
 const hideCtx=()=>{ctx.style.display='none';};
-document.addEventListener('click',hideCtx);
-document.addEventListener('contextmenu',e=>{ if(!e.target.closest('#ctxmenu'))hideCtx(); });
-stage.addEventListener('scroll',hideCtx,true);
+document.addEventListener('click',hideCtx);       // left-click anywhere closes it
 function findMachine(name,ip){
   const nm=(name||'').toLowerCase();
   return TOPOS.find(t=>t.kind!=='network' && (((t.name||'').toLowerCase()===nm) || (ip&&t.ip===ip)));
@@ -503,8 +502,9 @@ async function scanHost(name,ip){
   }catch(err){ showErr('could not scan '+name+':<br><br><code>'+String(err.message).replace(/\n/g,'<br>')+'</code>'); }
 }
 stage.addEventListener('contextmenu',e=>{
+  hideCtx();                                                // clear any open menu first
   const cardEl=e.target.closest('.card');
-  if(!cardEl||!TOPO||activeId!=='network') return;         // only network-map cards
+  if(!cardEl||!TOPO||activeId!=='network') return;         // native menu elsewhere
   const n=TOPO.nodes.find(x=>x.id===cardEl.dataset.id);
   if(!n) return;
   const ip=(n.meta&&n.meta.ip)||n.sub||'';
