@@ -523,12 +523,6 @@ function watchForHost(name,ip){
 }
 notice.querySelector('.nc-x').onclick=hideNotice;
 notice.addEventListener('click',e=>{ if(e.target===notice&&!notice.classList.contains('busy'))hideNotice(); });
-function fmtMsg(msg){                                // command-looking lines -> code blocks
-  return String(msg||'').split('\n').map(l=>{const t=l.trim();
-    if(!t) return '';
-    return /(^\.?\/|https?:\/\/)/.test(t)?`<div class="nc-cmd">${t}</div>`:`<div>${t}</div>`;
-  }).join('');
-}
 async function scanHost(name,ip){
   showNotice('Scanning '+name,`Contacting <b>${ip}</b> over SSH — this can take a few seconds…`,true);
   try{
@@ -537,8 +531,15 @@ async function scanHost(name,ip){
     if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
     hideNotice(); await loadList(); selectTopo(data.id);
   }catch(err){
-    showNotice("Add "+name, fmtMsg(err.message)
-      +`<div style="margin-top:12px;color:var(--hud-dim)">Waiting for <b style="color:var(--hud)">${name}</b> to report — this will open its map automatically once it does.</div>`);
+    const B='https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh';
+    const persistent=`curl -fsSL ${B} | TOPO_SERVER=${location.origin} bash`;
+    const snapshot  =`curl -fsSL ${B} | TOPO_SERVER=${location.origin} TOPO_ONCE=1 bash`;
+    const lbl=t=>`<div style="margin-top:14px;font-size:8.5px;letter-spacing:.14em;color:var(--hud-dim)">${t}</div>`;
+    showNotice("Add "+name,
+      `<div><b style="color:var(--hud)">${name}</b> isn't reporting yet. Run one of these on it:</div>`
+      +lbl('ALWAYS-ON DEVICE · PERSISTENT SERVICE')+`<div class="nc-cmd">${persistent}</div>`
+      +lbl('LAPTOP / PC · ONE-TIME SNAPSHOT')+`<div class="nc-cmd">${snapshot}</div>`
+      +`<div style="margin-top:14px;color:var(--hud-dim)">Waiting for it to report — this opens its map automatically. <span style="opacity:.6">(${err.message})</span></div>`);
     watchForHost(name,ip);   // auto-advance when the machine starts reporting
   }
 }

@@ -6,6 +6,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | bash
 #   # or, to point at a different server / dir:
 #   TOPO_SERVER=http://192.168.1.225:8770 TOPO_DIR=~/topo bash bootstrap.sh
+#   # one-time snapshot (laptop/PC), no persistent service:
+#   TOPO_SERVER=http://192.168.1.225:8770 TOPO_ONCE=1 bash bootstrap.sh
 set -euo pipefail
 
 REPO="${TOPO_REPO:-https://github.com/FugginOld/topologygenerator.git}"
@@ -40,9 +42,16 @@ fi
 
 chmod +x "$DIR/report.sh"
 
-# Install as a systemd service so reporting runs in the background (survives
-# logout + reboot) instead of occupying this terminal. Falls back to foreground
-# where systemd/root isn't available.
+# TOPO_ONCE: one-time snapshot (laptops / PCs) — push this machine's topology
+# once and exit. No service, no lingering process.
+if [ -n "${TOPO_ONCE:-}" ]; then
+  echo "one-time snapshot -> pushing this machine's topology to $SERVER…"
+  exec python3 "$DIR/topology_agent.py" --server "$SERVER"
+fi
+
+# Otherwise install a systemd service so reporting runs in the background
+# (survives logout + reboot) instead of occupying this terminal. Falls back to
+# foreground where systemd/root isn't available.
 if command -v systemctl >/dev/null 2>&1 && [ "$CAN_ROOT" = true ]; then
   echo "installing systemd service 'topology-agent' (may prompt for sudo)…"
   $SUDO tee /etc/systemd/system/topology-agent.service >/dev/null <<EOF
