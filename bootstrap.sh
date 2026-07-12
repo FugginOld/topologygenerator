@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-shot provision for a FRESH Debian/Ubuntu reporting machine: install deps,
-# clone the repo, and start reporting to the dashboard server.
+# clone the repo, and install a background systemd service that reports to the
+# dashboard server (no terminal left occupied; survives logout + reboot).
 #
 #   curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | bash
 #   # or, to point at a different server / dir:
@@ -31,4 +32,43 @@ else
 fi
 
 chmod +x "$DIR/report.sh"
-exec "$DIR/report.sh" "$SERVER"
+
+# Install as a systemd service so reporting runs in the background (survives
+# logout + reboot) instead of occupying this terminal. Falls back to foreground
+# where systemd/root isn't available.
+RUN_USER="$(id -un)"
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
+fi
+
+if command -v systemctl >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
+  echo "installing systemd service 'topology-agent' (may prompt for sudo)…"
+  $SUDO tee /etc/systemd/system/topology-agent.service >/dev/null <<EOF
+[Unit]
+Description=Topology reporting agent (pushes hardware map + live telemetry)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$RUN_USER
+WorkingDirectory=$DIR
+ExecStart=$DIR/report.sh $SERVER
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  $SUDO systemctl daemon-reload
+  $SUDO systemctl enable --now topology-agent
+  echo
+  echo "✓ topology-agent is running as a service (starts on boot)."
+  echo "  status:  systemctl status topology-agent"
+  echo "  logs:    journalctl -u topology-agent -f"
+  echo "  stop:    $SUDO systemctl disable --now topology-agent"
+else
+  echo "no systemd/root — running in the foreground instead (Ctrl-C to stop):"
+  exec "$DIR/report.sh" "$SERVER"
+fi
