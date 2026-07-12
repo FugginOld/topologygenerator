@@ -20,6 +20,7 @@ import http.server
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -31,6 +32,24 @@ STORE = os.path.join(ROOT, "out", "topologies")
 
 
 INGEST_TOKEN = os.environ.get("TOPO_TOKEN", "")   # optional shared secret for /api/ingest
+
+_server_ip_cache: str | None = None
+
+
+def server_ip() -> str:
+    """This server's own LAN IPv4 (cached). Used for locally-generated cards,
+    which have no push 'source'. No traffic sent; just picks the egress iface."""
+    global _server_ip_cache
+    if _server_ip_cache is None:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            _server_ip_cache = s.getsockname()[0]
+        except OSError:
+            _server_ip_cache = ""
+        finally:
+            s.close()
+    return _server_ip_cache or ""
 
 
 def store_path(tid: str) -> str:
@@ -83,7 +102,9 @@ def entry(path: str) -> dict:
         "generated": d.get("generated", ""),
         "modules": len(d.get("nodes", [])),
         "kind": d.get("kind", "host"),   # "network" map vs a machine's hardware
-        "ip": d.get("source", ""),       # push origin IP for reported hosts
+        # reported hosts carry their push origin; a local machine card has none,
+        # so fall back to this server's own IP. The network map gets no IP.
+        "ip": d.get("source") or ("" if d.get("kind") == "network" else server_ip()),
     }
 
 
