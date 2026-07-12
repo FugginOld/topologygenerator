@@ -16,7 +16,12 @@ if command -v apt-get >/dev/null 2>&1; then
     && apt-get install -y -qq git python3 pciutils util-linux dmidecode \
     || echo "warn: dependency install failed — run as root, or install: git python3 pciutils util-linux dmidecode"
 else
-  echo "warn: no apt-get — ensure git, python3, pciutils, util-linux, dmidecode are installed"
+  # ponytail: no apt-get (e.g. Unraid/Slackware) — check what's actually present instead of a blanket warning
+  missing=""
+  for bin in git python3 lspci lsblk dmidecode; do
+    command -v "$bin" >/dev/null 2>&1 || missing="$missing $bin"
+  done
+  [ -n "$missing" ] && echo "warn: no apt-get and missing:$missing — install these manually"
 fi
 
 if [ -d "$DIR/.git" ]; then
