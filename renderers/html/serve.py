@@ -6,7 +6,7 @@ This serves renderers/html/ plus a tiny API over out/topologies/*.json:
 
     GET  /api/list            -> [{id,name,generated,nodes,vlans}, ...]
     GET  /t/<id>.json         -> a saved topology
-    POST /api/generate {name} -> run make_topology.py, save as a new topology
+    POST /api/generate {name} -> run the hardware scanner, save as a new topology
     POST /api/delete   {id}   -> remove a saved topology
 
     python renderers/html/serve.py [--port 8770]
@@ -118,7 +118,7 @@ def generate(name: str) -> dict:
 
 
 def _network_cards(d: dict) -> list[dict]:
-    """Reshape a make_topology.py network JSON (zones/nodes) into the dashboard's
+    """Reshape a make_network_topology.py network JSON (zones/nodes) into the dashboard's
     node/parent tree so the existing renderer draws it: NETWORK -> VLAN -> host."""
     import ipaddress
     zones = d.get("zones", [])
@@ -166,7 +166,7 @@ def generate_network(subnet: str | None = None) -> dict:
             fh.write("offline_after_minutes: 30\npingsweep:\n  enabled: true\n"
                      f"  subnets: {subs}\n  resolve: true\n")
     r = subprocess.run(
-        [sys.executable, "make_topology.py", "--config", cfg_path, "--outdir", "out"],
+        [sys.executable, "make_network_topology.py", "--config", cfg_path, "--outdir", "out"],
         cwd=ROOT, capture_output=True, text=True,
     )
     src = os.path.join(ROOT, "out", "topology.json")
@@ -221,6 +221,11 @@ def host_telemetry(tid: str) -> dict:
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=HERE, **kw)
+
+    def end_headers(self):
+        # local dashboard: never let a browser cache stale HTML/JS
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
     def _send(self, code: int, obj) -> None:
         body = json.dumps(obj).encode()

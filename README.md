@@ -52,7 +52,7 @@ model — so you can add outputs without touching collection.
 ```bash
 pip install -r requirements.txt
 cp config.example.yaml config.yaml     # edit — this file is gitignored
-python make_topology.py --config config.yaml
+python make_network_topology.py --config config.yaml
 python renderers/html/serve.py         # http://localhost:8770
 ```
 
@@ -102,7 +102,7 @@ core/         schema.py · normalize.py · enrich.py · oui.csv
 renderers/    html/ (dashboard + serve.py) · static_svg.py · mermaid.py
 systemd/      timer/service units + topology-agent.service
 tests/        fixtures + end-to-end pipeline test
-make_topology.py        network topology orchestrator
+make_network_topology.py   network topology orchestrator
 
 # hardware topology + fleet dashboard (see HOWTO.md)
 make_pc_topology.py     Windows hardware scan (PnP/CIM)

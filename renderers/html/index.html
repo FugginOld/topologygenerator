@@ -134,7 +134,7 @@ const CLS={}, COL={};
 function refreshColors(){
   const s=getComputedStyle(document.body), g=n=>s.getPropertyValue(n).trim();
   CLS.gen5=g('--gen5');CLS.gen4=g('--gen4');CLS.gen3=g('--gen3');
-  // network zone classes (from make_topology zones) -> fixed bands, matches static_svg
+  // network zone classes (from make_network_topology zones) -> fixed bands, matches static_svg
   Object.assign(CLS,{mgmt:'#63d0ff',lan:'#46e0a4',srv:'#ffc451',adsb:'#ff9d5c',
     iot:'#ff5f6d',guest:'#8b7bff',dmz:'#ff9d5c',unknown:'#8899aa'});
   COL.line=g('--line');COL.hud=g('--hud');COL.dim=g('--hud-dim');
@@ -446,13 +446,18 @@ window.addEventListener('mouseup',()=>{
   }
   drag=null;held=null;snapGuide=null;stage.classList.remove('panning');   // release -> shrinks (unless pinned)
 });
-let lastWheel=0;
+let wheelAcc=0;
 stage.addEventListener('wheel',e=>{
   e.preventDefault();
-  // free-spin / precision wheels fire a burst per notch — collapse to one step
-  if(e.timeStamp-lastWheel<50)return; lastWheel=e.timeStamp;
+  // normalize across devices (lines/pages -> px), accumulate, then step ONCE
+  // per notch. Reset on each step so a single free-spin burst can't stack.
+  let d=e.deltaY;
+  if(e.deltaMode===1) d*=16; else if(e.deltaMode===2) d*=stage.clientHeight;
+  wheelAcc+=d;
+  if(Math.abs(wheelAcc)<50) return;
+  const zoomIn=wheelAcc<0; wheelAcc=0;
   const p=screenPt(e);
-  const f=e.deltaY<0?1.1:1/1.1; const nk=Math.max(0.25,Math.min(4,view.k*f)), r=nk/view.k;
+  const f=zoomIn?1.1:1/1.1; const nk=Math.max(0.25,Math.min(4,view.k*f)), r=nk/view.k;
   view.tx=p.x-(p.x-view.tx)*r; view.ty=p.y-(p.y-view.ty)*r; view.k=nk; applyView();
 },{passive:false});
 function zoomBtn(f){const b=stage.getBoundingClientRect(),cx=b.width/2,cy=b.height/2;

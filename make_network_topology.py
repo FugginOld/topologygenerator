@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Topology generator entrypoint.
 
-    python make_topology.py --config config.yaml
+    python make_network_topology.py --config config.yaml
 
 Pipeline: run enabled collectors (read-only) -> dump raw -> normalize into a
 canonical Topology -> enrich (vendor/kind/aging) -> render (json/mermaid/svg).
@@ -39,7 +39,7 @@ COLLECTORS = {
     "dns": DnsCollector,
 }
 
-log = logging.getLogger("make_topology")
+log = logging.getLogger("make_network_topology")
 
 
 def load_config(path: str) -> dict:
