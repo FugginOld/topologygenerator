@@ -261,15 +261,25 @@ function layout(){
     else { ch.forEach(dfs); slotOf[n.id]=(slotOf[ch[0].id]+slotOf[ch[ch.length-1].id])/2; }
   })(nodes.find(n=>!n.parent));
   nodes.forEach(n=>{ if(slotOf[n.id]==null) slotOf[n.id]=slot++; });   // orphans, just in case
-  const COLW=250, ROWH=48;                     // fixed spacing; fit() zooms to frame it
-  nodes.forEach(n=>{ n.x=depth(n)*COLW; n.y=slotOf[n.id]*ROWH; });
+  // left-align each column at a shared x, and space columns by the widest card in the
+  // column before them — so variable-width cards line up cleanly and never crowd the next
+  // column. n.x is the card's LEFT edge (render/links/fit all treat it that way).
+  const ROWH=48, GAP=90;
+  nodes.forEach(n=>{ n.w=cardWidth(n); });
+  const dep={}, colW={};
+  nodes.forEach(n=>{ const d=depth(n); dep[n.id]=d; colW[d]=Math.max(colW[d]||CW_MIN,n.w); });
+  const maxD=Math.max(0,...nodes.map(n=>dep[n.id]));
+  const colX={}; let cx=0;
+  for(let d=0; d<=maxD; d++){ colX[d]=cx; cx+=(colW[d]||CW_MIN)+GAP; }
+  nodes.forEach(n=>{ n.x=colX[dep[n.id]]; n.y=slotOf[n.id]*ROWH; });
   laidOut=true;
 }
 function fit(){
   if(!TOPO)return;
   const b=document.getElementById('stage').getBoundingClientRect();
-  const xs=TOPO.nodes.map(n=>n.x),ys=TOPO.nodes.map(n=>n.y);
-  const minx=Math.min(...xs)-130,maxx=Math.max(...xs)+130,miny=Math.min(...ys)-40,maxy=Math.max(...ys)+40;
+  const ys=TOPO.nodes.map(n=>n.y);
+  const minx=Math.min(...TOPO.nodes.map(n=>n.x))-40,maxx=Math.max(...TOPO.nodes.map(n=>n.x+(n.w||160)))+40;
+  const miny=Math.min(...ys)-40,maxy=Math.max(...ys)+40;
   const bw=maxx-minx,bh=maxy-miny;
   view.k=Math.min(b.width/bw,b.height/bh,1.6);
   view.tx=(b.width-bw*view.k)/2-minx*view.k; view.ty=(b.height-bh*view.k)/2-miny*view.k;
@@ -315,8 +325,8 @@ function render(){
   if(big&&byId[big]) cardBig(world,byId[big],big===pinned);   // drawn last -> on top, enlarged
 }
 function drawLink(world,p,c,cls,load,label){
-  load=load||.1; const midx=(p.x+c.x)/2, pw=(p.w||160)/2, cw=(c.w||160)/2;
-  const d=`M ${p.x+pw} ${p.y} C ${midx} ${p.y}, ${midx} ${c.y}, ${c.x-cw} ${c.y}`;
+  load=load||.1; const px=p.x+(p.w||160), cx=c.x, midx=(px+cx)/2;   // parent right edge -> child left edge
+  const d=`M ${px} ${p.y} C ${midx} ${p.y}, ${midx} ${c.y}, ${cx} ${c.y}`;
   world.appendChild(el('path',{d,fill:'none',stroke:COL.line,'stroke-width':1.2}));
   world.appendChild(el('path',{d,fill:'none',stroke:CLS[cls]||CLS.gen3,'stroke-width':1+load*2.6,
     'stroke-dasharray':'3 11','stroke-dashoffset':c.dash||0,'stroke-linecap':'round',opacity:0.3+load*0.55,filter:'url(#g)'}));
@@ -329,7 +339,7 @@ function card(world,n,big){
   const isPort=n.up!==undefined, down=n.up===false, meas=measured(n);
   const col=n.kind==='cpu'?COL.hud:(n.cls?CLS[n.cls]:COL.hud);   // colour = lane class (real), not temp
   const ledCol=isPort?(down?COL.down:COL.ok):col;
-  const g=el('g',{class:'card',transform:`translate(${n.x-w/2} ${n.y-h/2})`,opacity:down?0.5:1}); g.dataset.id=n.id;
+  const g=el('g',{class:'card',transform:`translate(${n.x} ${n.y-h/2})`,opacity:down?0.5:1}); g.dataset.id=n.id;
   world.appendChild(g);                    // attach now so fitText() can measure the text below
   g.appendChild(el('rect',{x:0,y:0,width:w,height:h,rx:3,fill:COL.fill,stroke:down?COL.down:col,'stroke-width':big?1.4:1,'stroke-dasharray':down?'3 3':'','filter':'url(#g)'}));
   g.appendChild(el('rect',{x:0,y:0,width:3.5,height:h,fill:down?COL.down:col}));
@@ -370,7 +380,7 @@ function details(n){
 function cardBig(world,n,pin){
   const rows=details(n), w=280, h=54+rows.length*15+(pin?15:0);
   const col=n.kind==='cpu'?COL.hud:(n.cls?CLS[n.cls]:COL.hud);
-  const g=el('g',{class:'card',transform:`translate(${n.x-w/2} ${n.y-h/2})`}); g.dataset.id=n.id;
+  const g=el('g',{class:'card',transform:`translate(${n.x} ${n.y-h/2})`}); g.dataset.id=n.id;
   world.appendChild(g);                    // attach now so fitText() can measure the text below
   g.appendChild(el('rect',{x:0,y:0,width:w,height:h,rx:4,fill:COL.fillBig,stroke:col,'stroke-width':1.6,filter:'url(#g)'}));
   g.appendChild(el('rect',{x:0,y:0,width:4,height:h,fill:col}));
