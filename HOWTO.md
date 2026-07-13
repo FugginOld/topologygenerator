@@ -3,14 +3,14 @@
 Map the real hardware of every machine on your network and watch them live from
 one dashboard.
 
-- **One dashboard server** (a Linux box, `192.168.1.225`) runs `topology_server.py`
+- **One dashboard server** (a Linux host on your LAN) runs `topology_server.py`
   as a systemd service, stores every machine's topology, and shows the live HUD.
 - **Each reporting machine** runs a small **agent** that scans its own hardware
   and pushes its topology + live telemetry to the server.
 
 ```text
    Windows PC ─┐
-   Linux box  ─┼──►  http://192.168.1.225:8770   (topology_server.py service on the Linux host)
+   Linux box  ─┼──►  http://<dashboard-ip>:8770   (topology_server.py service on the Linux host)
    Proxmox    ─┘      dashboard lists every host, live HUD per host
 ```
 
@@ -20,51 +20,35 @@ reporting machines is needed — only the server's port `8770` must be reachable
 
 ---
 
-## Part A — Set up the dashboard server (Linux, 192.168.1.225)
+## Part A — Set up the dashboard server (Linux)
 
-Do this **once**, on the Linux host that will run the dashboard. It runs as a
-systemd service, so it starts on boot and restarts if it dies.
+Do this **once**, on the Linux host that will run the dashboard. `install.sh`
+sets up a systemd service, so it starts on boot and restarts if it dies.
 
-1. **Install Python 3 + git** (only PyYAML is a Python dep; the dashboard itself
-   is stdlib). On Debian/Ubuntu:
-   ```bash
-   sudo apt-get update && sudo apt-get install -y python3 python3-yaml git
-   ```
-
-2. **Get the repo** (into your home dir):
+1. **Get the repo:**
    ```bash
    git clone https://github.com/FugginOld/topologygenerator.git ~/topologygenerator
-   ```
-
-3. **Install the service** — edit `User=` and the two paths to match this host,
-   then enable it:
-   ```bash
    cd ~/topologygenerator
-   sed -e "s#/home/YOUR_USER/topologygenerator#$HOME/topologygenerator#g" -e "s/YOUR_USER/$USER/g" \
-       systemd/topology-server.service | sudo tee /etc/systemd/system/topology-server.service >/dev/null
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now topology-server
-   sudo systemctl status topology-server        # should be "active (running)"
-   journalctl -u topology-server -f             # watch its logs
    ```
-   > The `sed` fills in your user + home path automatically; edit the unit by hand
-   > if the repo lives elsewhere. To require a token from agents, uncomment the
-   > `Environment=TOPO_TOKEN=…` line in the unit before enabling (see **Part E**).
 
-4. **Open the firewall** for port `8770` (only if this host runs one):
+2. **Install:**
    ```bash
-   sudo ufw allow 8770/tcp        # ufw
-   # or firewalld:  sudo firewall-cmd --permanent --add-port=8770/tcp && sudo firewall-cmd --reload
+   ./install.sh
+   # to require a shared token from agents:  TOPO_TOKEN=pick-a-secret ./install.sh   (see Part E)
    ```
+   It installs any missing deps, writes + enables the service (filling in your
+   user and paths), opens the firewall where present, and **prints your dashboard
+   URL and the `TOPO_SERVER=…` line to give agents** — both use this host's own
+   detected IP, so there's nothing to hardcode.
 
-5. **Open the dashboard:** `http://192.168.1.225:8770` (or `http://localhost:8770`
-   on the server itself).
+3. **Open the dashboard** at the URL it printed (e.g. `http://192.168.1.50:8770`,
+   or `http://localhost:8770` on the server itself).
    - Click **SCAN NETWORK** to map the LAN; **GENERATE** adds this server's own hardware map.
    - Other machines appear automatically once their agents report (Part B/C).
 
-**To update later:** `cd ~/topologygenerator && git pull && sudo systemctl restart topology-server`.
+**Update:** `git pull && ./install.sh`.  **Remove:** `./uninstall.sh`.
 
-> Prefer to keep the dashboard on **Windows**? `.\server.ps1` still works (opens
+> Prefer to keep the dashboard on **Windows**? `.\server\server.ps1` still works (opens
 > the firewall + runs the server); make it persistent via Task Scheduler like the
 > agent in **Part D**.
 
@@ -80,7 +64,7 @@ adapts to the host: a **systemd service** on most Linux, the boot **`go` script*
 on **Unraid**, or foreground where neither is available. Same command everywhere:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_SERVER=http://192.168.1.225:8770 bash
+curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_SERVER=http://<dashboard-ip>:8770 bash
 ```
 
 - **Name the card:** prepend `TOPO_NAME=proxmox-b` (see **Naming**). Defaults to the hostname.
@@ -106,15 +90,14 @@ apt-get install -y git python3 pciutils util-linux dmidecode
 git clone https://github.com/FugginOld/topologygenerator.git
 cd topologygenerator
 
-# 3. start reporting to the server (optionally with a name)
-./report.sh                                       # name = hostname
-./report.sh http://192.168.1.225:8770 proxmox-b   # server + name
+# 3. start reporting (the server URL is required — ./install.sh printed it)
+./agent/report.sh http://<dashboard-ip>:8770             # name = hostname
+./agent/report.sh http://<dashboard-ip>:8770 proxmox-b   # server + name
 ```
 
-`report.sh` defaults to `http://192.168.1.225:8770`. Leave it running — it pushes
-live telemetry every 3s and re-scans the topology every 5 min. The machine now
-appears in the dashboard sidebar. To keep it running across reboots, see
-**Part D**.
+Leave it running — it pushes live telemetry every 3s and re-scans the topology
+every 5 min. The machine now appears in the dashboard sidebar. To keep it running
+across reboots, see **Part D**.
 
 ### Naming
 
@@ -124,8 +107,8 @@ pile up stale copies). But machines that share a hostname — common with cloned
 Proxmox/VM templates (`localhost`, `debian`, `pve`…) — would **overwrite each
 other's card**. Give each such machine a distinct name:
 
-- Linux: `./report.sh http://192.168.1.225:8770 NAME` or `TOPO_NAME=NAME ./report.sh`
-- Windows: `.\report.ps1 -Name NAME`
+- Linux: `./agent/report.sh http://<dashboard-ip>:8770 NAME` or `TOPO_NAME=NAME ./agent/report.sh`
+- Windows: `.\agent\report.ps1 -Name NAME`
 
 Machines with already-unique hostnames need no name.
 
@@ -139,8 +122,8 @@ Machines with already-unique hostnames need no name.
    ```powershell
    git clone https://github.com/FugginOld/topologygenerator.git
    cd topologygenerator
-   .\report.ps1                       # name = hostname
-   .\report.ps1 -Name workstation-1   # custom card name (see Naming, Part B)
+   .\agent\report.ps1 -Server http://<dashboard-ip>:8770                     # name = hostname
+   .\agent\report.ps1 -Server http://<dashboard-ip>:8770 -Name workstation-1 # custom card name
    ```
 
    If PowerShell blocks the script, allow local scripts once:
@@ -148,9 +131,8 @@ Machines with already-unique hostnames need no name.
    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
    ```
 
-`report.ps1` defaults to `http://192.168.1.225:8770`; override with
-`.\report.ps1 -Server http://OTHER-HOST:8770`. Leave it running; see **Part D**
-to make it persistent.
+The server URL is required (`-Server` or `$env:TOPO_SERVER`) — `./install.sh`
+printed it. Leave it running; see **Part D** to make it persistent.
 
 ---
 
@@ -181,7 +163,7 @@ Create a task that runs at logon:
 
 ```powershell
 $action  = New-ScheduledTaskAction -Execute "powershell.exe" `
-  -Argument "-WindowStyle Hidden -File `"$PWD\report.ps1`""
+  -Argument "-WindowStyle Hidden -File `"$PWD\agent\report.ps1`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 Register-ScheduledTask -TaskName "TopologyAgent" -Action $action -Trigger $trigger
 ```
@@ -199,14 +181,14 @@ then:
 ```bash
 sudo systemctl daemon-reload && sudo systemctl restart topology-server
 ```
-(Windows: `$env:TOPO_TOKEN = "pick-a-long-secret"` before `.\server.ps1`.)
+(Windows: `$env:TOPO_TOKEN = "pick-a-long-secret"` before `.\server\server.ps1`.)
 
 **On each reporting machine**, provide the same token:
 ```bash
-TOPO_TOKEN="pick-a-long-secret" ./report.sh        # Linux
+TOPO_TOKEN="pick-a-long-secret" ./agent/report.sh        # Linux
 ```
 ```powershell
-$env:TOPO_TOKEN = "pick-a-long-secret"; .\report.ps1   # Windows
+$env:TOPO_TOKEN = "pick-a-long-secret"; .\agent\report.ps1   # Windows
 ```
 
 Pushes without a matching token get `403`.
@@ -222,7 +204,7 @@ one-shot push was done).
 
 **Can't reach the server from a reporting machine?**
 ```bash
-curl http://192.168.1.225:8770/api/list      # should return JSON
+curl http://<dashboard-ip>:8770/api/list      # should return JSON
 ```
 If it hangs/refuses: the service isn't running
 (`sudo systemctl status topology-server`), the firewall port (Part A.4) is
@@ -243,10 +225,28 @@ vendor/driver, so only `CPU %` shows there.
 
 **A one-shot push (topology only, no live telemetry):**
 ```bash
-python3 topology_agent.py --server http://192.168.1.225:8770        # Linux
-python topology_agent.py --server http://192.168.1.225:8770         # Windows
+python3 agent/topology_agent.py --server http://<dashboard-ip>:8770        # Linux
+python agent/topology_agent.py --server http://<dashboard-ip>:8770         # Windows
 ```
-Add `--report` (what `report.sh`/`report.ps1` do) to also stream live telemetry.
+Add `--report` (what `agent/report.sh`/`agent/report.ps1` do) to also stream live telemetry.
+
+---
+
+## Upgrading an existing install
+
+The tooling now lives in subfolders (`scanners/`, `agent/`, `server/`), so paths
+baked into old systemd units / launchers changed.
+
+- **Dashboard server:** unaffected — it runs `renderers/html/topology_server.py`
+  (unchanged). Just `cd ~/topologygenerator && git pull && ./install.sh` (or
+  `sudo systemctl restart topology-server`).
+- **Reporting machines:** the old agent unit / Unraid `go` line pointed at
+  `report.sh` at the repo root, now `agent/report.sh`. **Re-run the bootstrap
+  one-liner** on each machine (it regenerates the unit with the new path):
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_SERVER=http://<dashboard-ip>:8770 bash
+  ```
+  New installs need nothing special.
 
 ---
 
@@ -254,21 +254,22 @@ Add `--report` (what `report.sh`/`report.ps1` do) to also stream live telemetry.
 
 | Machine | Runs | Command |
 |---|---|---|
-| **Server** (Linux, 192.168.1.225) | dashboard + store | `topology-server` systemd service |
-| **Reporting (Linux)** | agent (push) | `./report.sh` |
-| **Reporting (Windows)** | agent (push) | `.\report.ps1` |
+| **Server** (Linux) | dashboard + store | `./install.sh` → `topology-server` service |
+| **Reporting (Linux)** | agent (push) | `./agent/report.sh` |
+| **Reporting (Windows)** | agent (push) | `.\agent\report.ps1` |
 
 | File | Purpose |
 |---|---|
-| `systemd/topology-server.service` | run the dashboard as a persistent Linux service |
-| `server.ps1` | start the dashboard on Windows (firewall + topology_server.py) |
+| `install.sh` / `uninstall.sh` | set up / remove the dashboard server as a Linux service |
+| `systemd/topology-server.service` | the dashboard service unit (install.sh writes it for you) |
+| `server/server.ps1` | start the dashboard on Windows (firewall + topology_server.py) |
 | `renderers/html/topology_server.py` | dashboard server + ingest/telemetry API |
 | `renderers/html/index.html` | the dashboard UI |
-| `make_pc_topology.py` | Windows hardware scan |
-| `make_linux_topology.py` | Linux hardware scan |
-| `local_telemetry.py` | live CPU/net/disk/temp sampler (both OSes) |
-| `topology_agent.py` | push topology + telemetry to the server |
-| `report.sh` / `report.ps1` | run the agent (self-updating) |
+| `scanners/make_pc_topology.py` | Windows hardware scan |
+| `scanners/make_linux_topology.py` | Linux hardware scan |
+| `core/local_telemetry.py` | live CPU/net/disk/temp sampler (both OSes) |
+| `agent/topology_agent.py` | push topology + telemetry to the server |
+| `agent/report.sh` / `agent/report.ps1` | run the agent (self-updating) |
 | `bootstrap.sh` | one-liner install — adapts to host (systemd / Unraid go / snapshot), git-free |
 | `systemd/topology-agent.service` | persistent Linux reporting (bootstrap installs this for you) |
 

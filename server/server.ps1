@@ -11,7 +11,7 @@ param(
   [int]$Port = 8770,
   [string]$Token = $env:TOPO_TOKEN
 )
-Set-Location $PSScriptRoot
+Set-Location (Split-Path -Parent $PSScriptRoot)   # repo root (server/ -> ..)
 
 # --- firewall: allow inbound TCP $Port so other machines can reach the dashboard ---
 $ruleName = "Topology dashboard $Port"

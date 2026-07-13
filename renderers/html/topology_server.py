@@ -11,7 +11,7 @@ This serves renderers/html/ plus a tiny API over out/topologies/*.json:
 
     python renderers/html/topology_server.py [--port 8770]
 
-GENERATE runs make_pc_topology.py to map this PC's hardware fabric.
+GENERATE runs scanners/make_pc_topology.py to map this PC's hardware fabric.
 """
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def list_rows() -> list[dict]:
 
 
 # pick the collector for whatever OS the dashboard is served from
-GENERATOR = "make_pc_topology.py" if sys.platform.startswith("win") else "make_linux_topology.py"
+GENERATOR = "scanners/make_pc_topology.py" if sys.platform.startswith("win") else "scanners/make_linux_topology.py"
 
 
 def _remote_scan_cfg() -> dict:
@@ -124,7 +124,7 @@ def scan_host(host: str, name: str) -> dict:
                            f"or remote_scan.hosts['{host}'] in config.yaml")
     opts = str(cfg.get("ssh_opts", "-o ConnectTimeout=8 -o BatchMode=yes")).split()
     py = cfg.get("python", "python3")
-    script = os.path.join(ROOT, "make_linux_topology.py")
+    script = os.path.join(ROOT, "scanners", "make_linux_topology.py")
     # Only the validated IP and trusted-config values (user/py/opts) reach the
     # command. The user-supplied name is NOT passed to the remote shell — we
     # stamp it onto the result server-side after the scan returns.
@@ -175,7 +175,7 @@ def generate_network(subnet: str | None = None) -> dict:
             fh.write("offline_after_minutes: 30\npingsweep:\n  enabled: true\n"
                      f"  subnets: {subs}\n  resolve: true\n")
     r = subprocess.run(
-        [sys.executable, "make_network_topology.py", "--config", cfg_path, "--outdir", "out"],
+        [sys.executable, "scanners/make_network_topology.py", "--config", cfg_path, "--outdir", "out"],
         cwd=ROOT, capture_output=True, text=True,
     )
     src = os.path.join(ROOT, "out", "topology.json")
@@ -197,8 +197,8 @@ def generate_network(subnet: str | None = None) -> dict:
     return out
 
 
-sys.path.insert(0, ROOT)    # repo root — where local_telemetry.py and the generators live
-import local_telemetry as _tele   # noqa: E402  shared local-metrics sampler
+sys.path.insert(0, ROOT)    # repo root — where core/ and the scanners live
+from core import local_telemetry as _tele   # noqa: E402  shared local-metrics sampler
 
 _tele_cache = {"t": 0.0, "data": dict(_tele.ZERO)}
 _host_tele: dict[str, dict] = {}   # host id -> {"t": monotonic, "data": {...}}

@@ -32,6 +32,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
+
 from renderers.card import Card   # the dashboard card contract (repo always present for the PC scan)
 
 PS = r"""

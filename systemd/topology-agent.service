@@ -13,7 +13,7 @@ Wants=network-online.target
 Type=simple
 User=YOUR_USER
 WorkingDirectory=/home/YOUR_USER/topologygenerator
-ExecStart=/home/YOUR_USER/topologygenerator/report.sh http://192.168.1.225:8770
+ExecStart=/home/YOUR_USER/topologygenerator/agent/report.sh http://DASHBOARD-IP:8770
 Restart=always
 RestartSec=10
 # Environment=TOPO_TOKEN=your-shared-secret

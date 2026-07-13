@@ -14,6 +14,8 @@ import logging
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
+
 from core.normalize import normalize
 from core.enrich import enrich
 from renderers import mermaid, static_svg

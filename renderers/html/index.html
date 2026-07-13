@@ -182,11 +182,11 @@ async function loadList(){
   catch(e){ TOPOS=[]; }
   renderList();
   if(!activeId && TOPOS.length) selectTopo(TOPOS[0].id);
-  else if(!TOPOS.length){ TOPO=null; showErr('no topologies yet.<br><br>hit <b>GENERATE</b> to map this PC, or run<br><code>python make_pc_topology.py</code>'); }
+  else if(!TOPOS.length){ TOPO=null; showErr('no topologies yet.<br><br>hit <b>GENERATE</b> to map this PC, or run<br><code>python scanners/make_pc_topology.py</code>'); }
 }
 function renderList(){
   const list=document.getElementById('list');list.innerHTML='';
-  if(!TOPOS.length){ list.innerHTML='<div class="empty">no topologies yet.<br><br>hit GENERATE, or run<br><code>python make_pc_topology.py</code></div>'; return; }
+  if(!TOPOS.length){ list.innerHTML='<div class="empty">no topologies yet.<br><br>hit GENERATE, or run<br><code>python scanners/make_pc_topology.py</code></div>'; return; }
   const item=t=>{
     const d=document.createElement('div');
     d.className='item'+(t.id===activeId?' active':'');

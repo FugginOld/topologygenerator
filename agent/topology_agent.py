@@ -29,8 +29,9 @@ import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-import local_telemetry as _tele   # noqa: E402  same sampler topology_server.py uses
+ROOT = os.path.dirname(HERE)           # repo root (agent/ -> ..)
+sys.path.insert(0, ROOT)
+from core import local_telemetry as _tele   # noqa: E402  same sampler topology_server.py uses
 
 GENERATOR = "make_pc_topology.py" if sys.platform.startswith("win") else "make_linux_topology.py"
 
@@ -39,7 +40,7 @@ def generate(name: str) -> dict:
     fd, out = tempfile.mkstemp(suffix=".json")
     os.close(fd)
     try:
-        r = subprocess.run([sys.executable, os.path.join(HERE, GENERATOR), "--out", out, "--name", name],
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scanners", GENERATOR), "--out", out, "--name", name],
                            capture_output=True, text=True)
         if not os.path.exists(out) or os.path.getsize(out) == 0:
             sys.exit((r.stderr or r.stdout or f"{GENERATOR} produced nothing").strip())

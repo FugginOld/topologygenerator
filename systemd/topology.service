@@ -8,6 +8,6 @@ Type=oneshot
 # adjust user + path to your checkout
 User=joe
 WorkingDirectory=/opt/topologygenerator
-ExecStart=/usr/bin/python3 make_network_topology.py --config config.yaml
+ExecStart=/usr/bin/python3 scanners/make_network_topology.py --config config.yaml
 # arpscan needs raw sockets; grant just that instead of full root if desired
 AmbientCapabilities=CAP_NET_RAW

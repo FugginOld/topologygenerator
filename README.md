@@ -20,17 +20,17 @@ policy) is a *build artifact* and is gitignored — see [Security](#security).
 Map the real hardware of every machine on your network and watch them live:
 
 ```text
-   Windows PC ─┐  ./report.sh  (or report.ps1)
+   Windows PC ─┐  ./agent/report.sh  (or agent\report.ps1)
    Linux box  ─┼──►  topology_server.py on one host  ──►  live dashboard, one card per machine
    Proxmox    ─┘     (POST /api/ingest + telemetry)
 ```
 
 - One **server** runs `python renderers/html/topology_server.py`; open `http://HOST:8770`.
 - Each machine runs an **agent** that scans its own hardware and pushes its
-  topology and live telemetry (`report.sh` on Linux, `report.ps1` on Windows, or
+  topology and live telemetry (`agent/report.sh` on Linux, `agent/report.ps1` on Windows, or
   the `bootstrap.sh` one-liner for a fresh Debian box).
-- Scanners: `make_pc_topology.py` (Windows, PnP/CIM) and `make_linux_topology.py`
-  (Linux, sysfs/proc). Live metrics: `local_telemetry.py` (real CPU temp on Linux).
+- Scanners: `scanners/make_pc_topology.py` (Windows, PnP/CIM) and `scanners/make_linux_topology.py`
+  (Linux, sysfs/proc). Live metrics: `core/local_telemetry.py` (real CPU temp on Linux).
 
 Full step-by-step — server firewall, each reporting machine, persistence,
 naming, tokens, troubleshooting — is in **[HOWTO.md](HOWTO.md)**.
@@ -54,6 +54,10 @@ pip install -r requirements.txt            # only PyYAML is required
 python renderers/html/topology_server.py   # http://localhost:8770
 ```
 
+On a Linux host, `./install.sh` sets the dashboard up as a systemd service
+(starts on boot, prints its own URL); `./uninstall.sh` removes it. See
+[HOWTO.md](HOWTO.md).
+
 Open the dashboard and click **SCAN NETWORK** — with no config at all it
 ping-sweeps your subnet and, if it doesn't recognise a gateway collector,
 **fingerprints your router** and tells you which one to enable (e.g. *"gateway
@@ -64,7 +68,7 @@ cp config.example.yaml config.yaml         # edit — this file is gitignored
 # enable unifi / proxmox / etc. with their API keys, then re-scan
 ```
 
-Prefer the CLI? `python make_network_topology.py --config config.yaml` writes
+Prefer the CLI? `python scanners/make_network_topology.py --config config.yaml` writes
 `out/topology.json` + `.svg` + `.mmd` directly.
 
 **Adding a machine to the fleet:** right-click any host in the network map →
@@ -120,16 +124,17 @@ core/         schema · normalize · enrich · detect (gateway fingerprint) · o
 renderers/    html/ (dashboard + topology_server.py) · static_svg.py · mermaid.py
 systemd/      units: topology-server (dashboard) · topology-agent · timer
 tests/        fixtures + end-to-end pipeline test
-make_network_topology.py   network topology orchestrator (collectors → renderers)
+scanners/make_network_topology.py   network topology orchestrator (collectors → renderers)
 
 # hardware topology + fleet dashboard (see HOWTO.md)
-make_pc_topology.py      Windows hardware scan (PnP/CIM)
-make_linux_topology.py   Linux hardware scan (sysfs/proc/USB/thermal)
-local_telemetry.py       shared live CPU/net/disk/temp sampler
-topology_agent.py        push topology + telemetry to the server
-report.sh · report.ps1   run the agent (self-updating)
-server.ps1               start the dashboard (firewall + topology_server.py)
-bootstrap.sh             one-liner install: systemd service / Unraid go-script /
+scanners/make_pc_topology.py      Windows hardware scan (PnP/CIM)
+scanners/make_linux_topology.py   Linux hardware scan (sysfs/proc/USB/thermal)
+core/local_telemetry.py       shared live CPU/net/disk/temp sampler
+agent/topology_agent.py        push topology + telemetry to the server
+install.sh · uninstall.sh  set up / remove the dashboard as a Linux service
+agent/report.sh · agent/report.ps1   run the agent (self-updating)
+server/server.ps1        start the dashboard on Windows (firewall + topology_server.py)
+bootstrap.sh             agent one-liner install: systemd / Unraid go-script /
                          TOPO_ONCE snapshot — adapts to the host, git-free
 ```
 

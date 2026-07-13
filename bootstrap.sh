@@ -3,16 +3,21 @@
 # and set up background reporting to the dashboard server (no terminal occupied,
 # survives reboot). Uses systemd where present, the boot 'go' script on Unraid.
 #
-#   curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | bash
-#   # or, to point at a different server / dir:
-#   TOPO_SERVER=http://192.168.1.225:8770 TOPO_DIR=~/topo bash bootstrap.sh
+# TOPO_SERVER is required — the dashboard prints its URL when you run ./install.sh,
+# and the dashboard's right-click "Generate machine topology" fills this in for you.
+#
+#   curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_SERVER=http://DASHBOARD-IP:8770 bash
 #   # one-time snapshot (laptop/PC), no persistent service:
-#   TOPO_SERVER=http://192.168.1.225:8770 TOPO_ONCE=1 bash bootstrap.sh
+#   curl -fsSL ...bootstrap.sh | TOPO_SERVER=http://DASHBOARD-IP:8770 TOPO_ONCE=1 bash
 set -euo pipefail
 
 REPO="${TOPO_REPO:-https://github.com/FugginOld/topologygenerator.git}"
 TARURL="${REPO%.git}/archive/refs/heads/main.tar.gz"   # git-free fallback (curl+tar)
-SERVER="${TOPO_SERVER:-http://192.168.1.225:8770}"
+SERVER="${TOPO_SERVER:-}"
+if [ -z "$SERVER" ]; then
+  echo "error: set TOPO_SERVER=http://<dashboard-ip>:8770 (the dashboard prints its URL on ./install.sh)" >&2
+  exit 1
+fi
 
 # Unraid runs its OS from RAM, so anything under / is wiped on reboot — clone to
 # the array (appdata) instead, and persist via the boot 'go' script (no systemd).
@@ -63,13 +68,13 @@ else
   else wget -qO- "$TARURL" | tar xz -C "$DIR" --strip-components=1; fi
 fi
 
-chmod +x "$DIR/report.sh"
+chmod +x "$DIR/agent/report.sh"
 
 # TOPO_ONCE: one-time snapshot (laptops / PCs) — push this machine's topology
 # once and exit. No service, no lingering process.
 if [ -n "${TOPO_ONCE:-}" ]; then
   echo "one-time snapshot -> pushing this machine's topology to $SERVER…"
-  exec python3 "$DIR/topology_agent.py" --server "$SERVER"
+  exec python3 "$DIR/agent/topology_agent.py" --server "$SERVER"
 fi
 
 # Unraid: no systemd. Persist via a flash launcher + the boot 'go' script. The
@@ -82,10 +87,10 @@ if [ "$IS_UNRAID" = true ]; then
 # topology reporting agent launcher — persisted on the Unraid flash by bootstrap
 DIR="$DIR"; SERVER="$SERVER"; TARURL="$TARURL"
 for i in \$(seq 1 60); do [ -d "\$(dirname "\$DIR")" ] && break; sleep 5; done  # wait ~5m for array
-if [ ! -f "\$DIR/report.sh" ]; then          # re-fetch if appdata was wiped (git-free)
+if [ ! -f "\$DIR/agent/report.sh" ]; then          # re-fetch if appdata was wiped (git-free)
   mkdir -p "\$DIR"; curl -fsSL "\$TARURL" | tar xz -C "\$DIR" --strip-components=1
 fi
-exec "\$DIR/report.sh" "\$SERVER"
+exec "\$DIR/agent/report.sh" "\$SERVER"
 EOF
   chmod +x "$LAUNCHER"
   GO=/boot/config/go
@@ -118,7 +123,7 @@ Wants=network-online.target
 Type=simple
 User=$RUN_USER
 WorkingDirectory=$DIR
-ExecStart=$DIR/report.sh $SERVER
+ExecStart=$DIR/agent/report.sh $SERVER
 Restart=always
 RestartSec=10
 
@@ -135,5 +140,5 @@ EOF
   echo "  stop:    $SUDO systemctl disable --now topology-agent"
 else
   echo "no systemd/root — running in the foreground instead (Ctrl-C to stop):"
-  exec "$DIR/report.sh" "$SERVER"
+  exec "$DIR/agent/report.sh" "$SERVER"
 fi

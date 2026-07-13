@@ -1,20 +1,22 @@
 # Run on a WINDOWS reporting machine. Pushes this host's topology + live
 # telemetry to the dashboard server. Self-updates from git on each start.
 #
-#   .\report.ps1                                   # default server, name = hostname
-#   .\report.ps1 -Server http://host:8770          # override server
-#   .\report.ps1 -Name node-a                      # override the card name
+#   .\report.ps1 -Server http://host:8770          # server (name = hostname)
+#   .\report.ps1 -Server http://host:8770 -Name node-a
+#   $env:TOPO_SERVER="http://host:8770"; .\report.ps1   # server via env
 #   $env:TOPO_TOKEN="secret"; .\report.ps1         # if the server sets a shared token
 #
-# The dashboard keeps ONE card per name (defaults to this host's hostname), so
+# The server URL is required (-Server or $env:TOPO_SERVER) — ./install.sh prints
+# it. The dashboard keeps ONE card per name (defaults to this host's hostname), so
 # give machines that share a hostname distinct names or one overwrites the other.
 #
 # Requires Python 3 on PATH. If PowerShell blocks the script, run once:
 #   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 param(
-  [string]$Server = $(if ($env:TOPO_SERVER) { $env:TOPO_SERVER } else { "http://192.168.1.225:8770" }),
+  [string]$Server = $env:TOPO_SERVER,
   [string]$Name = $env:TOPO_NAME
 )
+if (-not $Server) { Write-Error "set -Server http://<dashboard-ip>:8770 (or `$env:TOPO_SERVER)"; exit 1 }
 Set-Location $PSScriptRoot
 
 git pull --ff-only 2>$null
