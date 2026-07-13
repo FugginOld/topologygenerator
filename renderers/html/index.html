@@ -30,8 +30,9 @@
   #sidebar .head{padding:18px 16px 12px;border-bottom:1px solid var(--line)}
   #sidebar .head h2{font-size:12px;letter-spacing:.24em;color:var(--hud);text-shadow:0 0 10px rgba(var(--glow),.4)}
   #sidebar .head .sub{font-size:8.5px;color:var(--hud-dim);letter-spacing:.12em;margin-top:5px}
-  #addbtn,#netbtn{margin:12px 14px;padding:9px;border:1px dashed var(--hud-dim);border-radius:4px;background:transparent;
-    color:var(--hud);font-family:inherit;font-size:10px;letter-spacing:.14em;cursor:pointer;transition:.15s;display:block;width:calc(100% - 28px)}
+  #addbtn,#netbtn{margin:12px 14px;padding:9px 8px;border:1px dashed var(--hud-dim);border-radius:4px;background:transparent;
+    color:var(--hud);font-family:inherit;font-size:10px;letter-spacing:.1em;text-transform:uppercase;text-align:center;
+    white-space:nowrap;cursor:pointer;transition:.15s;display:block;width:calc(100% - 28px)}
   #netbtn{margin-top:0}
   #addbtn:hover,#netbtn:hover{border-color:var(--hud);background:rgba(var(--glow),.08);box-shadow:0 0 14px rgba(var(--glow),.15)}
   #addbtn:disabled,#netbtn:disabled{opacity:.5;cursor:wait}
@@ -99,9 +100,9 @@
 <body>
 
 <aside id="sidebar">
-  <div class="head"><h2>T O P O L O G I E S</h2><div class="sub">pc hardware fabric maps</div></div>
-  <button id="addbtn">+ &nbsp; G E N E R A T E</button>
-  <button id="netbtn">⊹ &nbsp; S C A N &nbsp; N E T W O R K</button>
+  <div class="head"><h2>TOPOLOGY MAPS</h2><div class="sub">pc hardware fabric maps</div></div>
+  <button id="addbtn">+ Generate Current Machine</button>
+  <button id="netbtn">⊹ Scan Network</button>
   <div id="list"></div>
   <div id="legend">lane class
     <div><i style="background:var(--gen5)"></i>Gen5</div>
@@ -268,7 +269,7 @@ function fit(){
   if(!TOPO)return;
   const b=document.getElementById('stage').getBoundingClientRect();
   const xs=TOPO.nodes.map(n=>n.x),ys=TOPO.nodes.map(n=>n.y);
-  const minx=Math.min(...xs)-90,maxx=Math.max(...xs)+90,miny=Math.min(...ys)-40,maxy=Math.max(...ys)+40;
+  const minx=Math.min(...xs)-130,maxx=Math.max(...xs)+130,miny=Math.min(...ys)-40,maxy=Math.max(...ys)+40;
   const bw=maxx-minx,bh=maxy-miny;
   view.k=Math.min(b.width/bw,b.height/bh,1.6);
   view.tx=(b.width-bw*view.k)/2-minx*view.k; view.ty=(b.height-bh*view.k)/2-miny*view.k;
@@ -276,6 +277,18 @@ function fit(){
 }
 function applyView(){document.getElementById('zpct').textContent=Math.round(view.k*100)+'%';}
 function tcol(t){return t>=64?COL.crit:t>=55?COL.warn:COL.ok;}
+
+// card sizing: cards auto-expand to fit their label (capped so columns never collide), then
+// compress text as a last resort so nothing spills past the edge — works whatever mono font
+// the browser actually has. getComputedTextLength/textLength are in the card's own units.
+const _mc=document.createElement('canvas').getContext('2d');
+const measW=(s,px)=>{_mc.font=px+'px "DejaVu Sans Mono","Consolas",monospace';return _mc.measureText(String(s)).width;};
+function fitText(t,maxW){const L=t.getComputedTextLength();if(L>maxW){t.setAttribute('textLength',Math.max(1,maxW).toFixed(1));t.setAttribute('lengthAdjust','spacingAndGlyphs');}}
+const CW_MIN=160,CW_MAX=232;                 // 232 keeps ≥18px gap between 250px-spaced columns
+function cardWidth(n){const fL=n.kind==='cpu'?12.5:10.5;
+  const wl=11+measW(clip(n.label,28),fL)+22;          // label + room for the status LED
+  const ws=11+measW(clip(n.sub||'',34),8.2)+46;       // sub + room for the right-side readout
+  return Math.max(CW_MIN,Math.min(CW_MAX,Math.max(wl,ws)));}
 
 // ================= RENDER =================
 function render(){
@@ -295,14 +308,15 @@ function render(){
     if(snapGuide.y!=null)world.appendChild(el('line',{x1:x0,y1:snapGuide.y,x2:x1,y2:snapGuide.y,stroke:COL.hud,'stroke-width':0.6,'stroke-dasharray':'4 6',opacity:.4}));
     if(snapGuide.x!=null)world.appendChild(el('line',{x1:snapGuide.x,y1:y0,x2:snapGuide.x,y2:y1,stroke:COL.hud,'stroke-width':0.6,'stroke-dasharray':'4 6',opacity:.4}));
   }
+  nodes.forEach(n=>{ n.w=cardWidth(n); });           // size cards first so links attach at their real edges
   nodes.forEach(n=>{ if(n.parent&&byId[n.parent]) drawLink(world,byId[n.parent],n,n.cls||'gen3',n.load,n.link); });
   const big=held||pinned;                            // hold-to-preview or click-to-pin
   nodes.forEach(n=>{ if(n.id!==big) card(world,n,n.kind==='cpu'); });
   if(big&&byId[big]) cardBig(world,byId[big],big===pinned);   // drawn last -> on top, enlarged
 }
 function drawLink(world,p,c,cls,load,label){
-  load=load||.1; const midx=(p.x+c.x)/2;
-  const d=`M ${p.x+80} ${p.y} C ${midx} ${p.y}, ${midx} ${c.y}, ${c.x-80} ${c.y}`;
+  load=load||.1; const midx=(p.x+c.x)/2, pw=(p.w||160)/2, cw=(c.w||160)/2;
+  const d=`M ${p.x+pw} ${p.y} C ${midx} ${p.y}, ${midx} ${c.y}, ${c.x-cw} ${c.y}`;
   world.appendChild(el('path',{d,fill:'none',stroke:COL.line,'stroke-width':1.2}));
   world.appendChild(el('path',{d,fill:'none',stroke:CLS[cls]||CLS.gen3,'stroke-width':1+load*2.6,
     'stroke-dasharray':'3 11','stroke-dashoffset':c.dash||0,'stroke-linecap':'round',opacity:0.3+load*0.55,filter:'url(#g)'}));
@@ -311,18 +325,21 @@ function drawLink(world,p,c,cls,load,label){
     world.appendChild(t); }
 }
 function card(world,n,big){
-  const w=160,h=big?42:38;
+  const w=n.w||160,h=big?42:38;
   const isPort=n.up!==undefined, down=n.up===false, meas=measured(n);
   const col=n.kind==='cpu'?COL.hud:(n.cls?CLS[n.cls]:COL.hud);   // colour = lane class (real), not temp
   const ledCol=isPort?(down?COL.down:COL.ok):col;
   const g=el('g',{class:'card',transform:`translate(${n.x-w/2} ${n.y-h/2})`,opacity:down?0.5:1}); g.dataset.id=n.id;
+  world.appendChild(g);                    // attach now so fitText() can measure the text below
   g.appendChild(el('rect',{x:0,y:0,width:w,height:h,rx:3,fill:COL.fill,stroke:down?COL.down:col,'stroke-width':big?1.4:1,'stroke-dasharray':down?'3 3':'','filter':'url(#g)'}));
   g.appendChild(el('rect',{x:0,y:0,width:3.5,height:h,fill:down?COL.down:col}));
   const led=el('circle',{cx:w-10,cy:10,r:3.2,fill:ledCol,filter:'url(#g)'});
   if(isPort&&!down) led.appendChild(el('animate',{attributeName:'opacity',values:'1;.45;1',dur:'1.4s',repeatCount:'indefinite'}));
   g.appendChild(led);
-  g.appendChild(el('text',{x:11,y:big?17:16,'font-size':big?12.5:10.5,fill:down?COL.dim:COL.title,'letter-spacing':'.02em'},clip(n.label,20)));
-  g.appendChild(el('text',{x:11,y:big?30:28,'font-size':8.2,fill:COL.dim},clip(n.sub||'',26)));
+  const lt=el('text',{x:11,y:big?17:16,'font-size':big?12.5:10.5,fill:down?COL.dim:COL.title,'letter-spacing':'.02em'},clip(n.label,28));
+  g.appendChild(lt); fitText(lt,w-33);
+  const st=el('text',{x:11,y:big?30:28,'font-size':8.2,fill:COL.dim},clip(n.sub||'',34));
+  g.appendChild(st); fitText(st,w-57);
   // right-side readout: link state on ports, capacity% on disks, live util% on cpu/net
   const hasFill=n.fill!=null, val=hasFill?n.fill:(n.load||0);
   if(isPort) g.appendChild(el('text',{x:w-9,y:big?30:28,'font-size':8.5,fill:ledCol,'text-anchor':'end'},down?'DOWN':'UP'));
@@ -334,7 +351,6 @@ function card(world,n,big){
     g.appendChild(el('rect',{x:bx,y:by,width:bw,height:3,rx:1.5,fill:COL.barBg}));
     g.appendChild(el('rect',{x:bx,y:by,width:bw*Math.min(1,val),height:3,rx:1.5,fill:col}));
   }
-  world.appendChild(g);
 }
 function clip(s,n){s=String(s);return s.length>n?s.slice(0,n-1)+'…':s;}
 // press-and-hold detail: every field the node carries, key/value rows
@@ -355,19 +371,22 @@ function cardBig(world,n,pin){
   const rows=details(n), w=280, h=54+rows.length*15+(pin?15:0);
   const col=n.kind==='cpu'?COL.hud:(n.cls?CLS[n.cls]:COL.hud);
   const g=el('g',{class:'card',transform:`translate(${n.x-w/2} ${n.y-h/2})`}); g.dataset.id=n.id;
+  world.appendChild(g);                    // attach now so fitText() can measure the text below
   g.appendChild(el('rect',{x:0,y:0,width:w,height:h,rx:4,fill:COL.fillBig,stroke:col,'stroke-width':1.6,filter:'url(#g)'}));
   g.appendChild(el('rect',{x:0,y:0,width:4,height:h,fill:col}));
   if(pin) g.appendChild(el('circle',{cx:w-11,cy:11,r:3,fill:col,filter:'url(#g)'}));   // pin dot
-  g.appendChild(el('text',{x:14,y:21,'font-size':12.5,fill:COL.title,'letter-spacing':'.02em'},clip(n.label,pin?37:40)));
-  g.appendChild(el('text',{x:14,y:37,'font-size':8.5,fill:COL.dim},clip(n.sub||'',48)));
+  const lt=el('text',{x:14,y:21,'font-size':12.5,fill:COL.title,'letter-spacing':'.02em'},clip(n.label,pin?37:40));
+  g.appendChild(lt); fitText(lt,w-28);
+  const st=el('text',{x:14,y:37,'font-size':8.5,fill:COL.dim},clip(n.sub||'',48));
+  g.appendChild(st); fitText(st,w-28);
   let y=55;
   rows.forEach(([k,v])=>{
     g.appendChild(el('text',{x:14,y,'font-size':9,fill:COL.dim,'letter-spacing':'.06em'},k));
-    g.appendChild(el('text',{x:w-14,y,'font-size':9.5,fill:col,'text-anchor':'end'},String(v)));
+    const vt=el('text',{x:w-14,y,'font-size':9.5,fill:col,'text-anchor':'end'},String(v));
+    g.appendChild(vt); fitText(vt,w-28-measW(k,9)-12);   // keep each value clear of its key
     y+=15;
   });
   if(pin) g.appendChild(el('text',{x:14,y,'font-size':7.5,fill:COL.dim,'letter-spacing':'.12em'},'PINNED · CLICK TO CLOSE'));
-  world.appendChild(g);
 }
 
 // ================= LIVE TELEMETRY (real) =================
