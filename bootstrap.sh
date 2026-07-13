@@ -21,17 +21,25 @@ SUDO=""
 if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
 if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then CAN_ROOT=true; else CAN_ROOT=false; fi
 
-if command -v apt-get >/dev/null 2>&1; then
-  $SUDO apt-get update -qq \
-    && $SUDO apt-get install -y -qq git python3 pciutils util-linux dmidecode \
-    || echo "warn: dependency install failed — install manually: git python3 pciutils util-linux dmidecode"
-else
-  # ponytail: no apt-get (e.g. Unraid/Slackware) — check what's actually present instead of a blanket warning
-  missing=""
-  for bin in git python3 lspci lsblk dmidecode; do
-    command -v "$bin" >/dev/null 2>&1 || missing="$missing $bin"
-  done
-  [ -n "$missing" ] && echo "warn: no apt-get and missing:$missing — install these manually"
+# Only touch the package manager for tools that are actually MISSING *and*
+# relevant to this machine. A re-run on a provisioned host — or one with a wedged
+# dpkg but the tools already present (e.g. a Pi) — then never invokes apt at all.
+have() { command -v "$1" >/dev/null 2>&1; }
+need=""
+have git     || need="$need git"
+have python3 || need="$need python3"
+have lsblk   || need="$need util-linux"                        # storage enumeration
+[ -n "$(ls -A /sys/bus/pci/devices 2>/dev/null)" ] && ! have lspci && need="$need pciutils"  # PCI names; skip on a Pi
+case "$(uname -m)" in x86_64|i?86) have dmidecode || need="$need dmidecode";; esac  # SMBIOS is x86-only
+
+if [ -n "$need" ]; then
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "installing:$need"
+    $SUDO apt-get update -qq && $SUDO apt-get install -y -qq $need \
+      || echo "warn: could not install:$need — fix dpkg, or install manually; devices needing them may be missing"
+  else
+    echo "warn: missing and no apt-get:$need — install these manually"
+  fi
 fi
 
 if [ -d "$DIR/.git" ]; then
