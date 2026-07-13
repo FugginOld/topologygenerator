@@ -12,8 +12,14 @@
 set -euo pipefail
 
 REPO="${TOPO_REPO:-https://github.com/FugginOld/topologygenerator.git}"
-TARURL="${REPO%.git}/archive/refs/heads/main.tar.gz"   # git-free fallback (curl+tar)
+TARURL="${REPO%.git}/archive/refs/heads/main.tar.gz"
 SERVER="${TOPO_SERVER:-}"
+
+# A reporting agent needs ONLY these paths — the agent, the Linux hardware
+# scanner, and the telemetry sampler — not the whole repo/dashboard/.git.
+AGENT_PATHS="agent scanners/make_linux_topology.py core/__init__.py core/local_telemetry.py"
+TOP="$(basename "${REPO%.git}")-main"   # github tarball top dir, e.g. topologygenerator-main
+MEMBERS=""; for f in $AGENT_PATHS; do MEMBERS="$MEMBERS $TOP/$f"; done
 if [ -z "$SERVER" ]; then
   echo "error: set TOPO_SERVER=http://<dashboard-ip>:8770 (the dashboard prints its URL on ./install.sh)" >&2
   exit 1
@@ -41,7 +47,7 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then CAN_ROOT=true; else CAN_ROOT=fal
 # dpkg but the tools already present (e.g. a Pi) — then never invokes apt at all.
 have() { command -v "$1" >/dev/null 2>&1; }
 need=""
-{ have git || have curl || have wget; } || need="$need git"   # any one can fetch the repo
+{ have curl || have wget; } || need="$need curl"             # fetches the agent files
 have python3 || need="$need python3"
 have lsblk   || need="$need util-linux"                        # storage enumeration
 [ -n "$(ls -A /sys/bus/pci/devices 2>/dev/null)" ] && ! have lspci && need="$need pciutils"  # PCI names; skip on a Pi
@@ -57,16 +63,12 @@ if [ -n "$need" ]; then
   fi
 fi
 
-# Fetch the repo: git if present (clone/pull), else download the tarball with
-# curl/wget + tar. Lets minimal hosts (Unraid has no git) provision anyway.
-if have git; then
-  if [ -d "$DIR/.git" ]; then git -C "$DIR" pull --ff-only; else git clone "$REPO" "$DIR"; fi
-else
-  echo "no git — fetching source tarball"
-  mkdir -p "$DIR"
-  if have curl; then curl -fsSL "$TARURL" | tar xz -C "$DIR" --strip-components=1
-  else wget -qO- "$TARURL" | tar xz -C "$DIR" --strip-components=1; fi
-fi
+# Fetch just the agent files (selective tarball extract — no git, no dashboard).
+# Re-running bootstrap re-fetches to update.
+echo "fetching agent files -> $DIR"
+mkdir -p "$DIR"
+if have curl; then curl -fsSL "$TARURL"; else wget -qO- "$TARURL"; fi \
+  | tar xz -C "$DIR" --strip-components=1 $MEMBERS
 
 chmod +x "$DIR/agent/report.sh"
 
@@ -85,10 +87,10 @@ if [ "$IS_UNRAID" = true ]; then
   cat > "$LAUNCHER" <<EOF
 #!/bin/bash
 # topology reporting agent launcher — persisted on the Unraid flash by bootstrap
-DIR="$DIR"; SERVER="$SERVER"; TARURL="$TARURL"
+DIR="$DIR"; SERVER="$SERVER"; TARURL="$TARURL"; MEMBERS="$MEMBERS"
 for i in \$(seq 1 60); do [ -d "\$(dirname "\$DIR")" ] && break; sleep 5; done  # wait ~5m for array
-if [ ! -f "\$DIR/agent/report.sh" ]; then          # re-fetch if appdata was wiped (git-free)
-  mkdir -p "\$DIR"; curl -fsSL "\$TARURL" | tar xz -C "\$DIR" --strip-components=1
+if [ ! -f "\$DIR/agent/report.sh" ]; then          # re-fetch just the agent files (git-free)
+  mkdir -p "\$DIR"; curl -fsSL "\$TARURL" | tar xz -C "\$DIR" --strip-components=1 \$MEMBERS
 fi
 exec bash "\$DIR/agent/report.sh" "\$SERVER"
 EOF

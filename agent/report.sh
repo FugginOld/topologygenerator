@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run on a LINUX reporting machine. Keeps this host's topology + live telemetry
-# flowing to the dashboard server. Self-updates from git on each start.
+# flowing to the dashboard server. Self-updates from git if run from a full
+# checkout; a bootstrap agent install is a minimal file set — re-run bootstrap to update.
 #
 #   ./report.sh http://host:8770             # -> server (name = hostname)
 #   ./report.sh http://host:8770 node-a      # -> server AND name
@@ -21,9 +22,13 @@ if [ -z "$SERVER" ]; then
   echo "usage: ./report.sh http://<dashboard-ip>:8770 [name]   (or set TOPO_SERVER)" >&2
   exit 1
 fi
-cd "$(dirname "$(readlink -f "$0")")"
+cd "$(dirname "$(readlink -f "$0")")"   # -> agent/ ; repo root is ..
 
-git pull --ff-only >/dev/null 2>&1 || echo "warn: git pull skipped (offline or local changes)"
+# self-update only when this is a full git checkout; a bootstrap agent install is
+# a minimal file set (no .git) — update those by re-running bootstrap.
+if [ -d ../.git ]; then
+  git -C .. pull --ff-only >/dev/null 2>&1 || echo "warn: git pull skipped (offline or local changes)"
+fi
 for t in lspci lsblk; do
   command -v "$t" >/dev/null 2>&1 || echo "warn: '$t' not found — some devices will be missing (apt-get install pciutils util-linux)"
 done
