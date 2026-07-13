@@ -22,26 +22,40 @@ param(
 
 $TaskName = "TopologyAgent"
 
-# -Uninstall: drop the scheduled task and exit (no server needed).
+$VbsPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'TopologyAgent.vbs'
+
+# -Uninstall: drop the scheduled task AND the Startup launcher (no server needed).
 if ($Uninstall) {
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-  Write-Host "removed scheduled task '$TaskName'"
+  Remove-Item $VbsPath -ErrorAction SilentlyContinue
+  Write-Host "removed scheduled task + Startup launcher"
   exit 0
 }
 
-# -Install: register a scheduled task that runs THIS script at logon (hidden,
-# execution-policy-bypassed, restarts if it dies), then start it now.
+# -Install: persist reporting at logon. Prefer a scheduled task (restarts on
+# failure); it needs admin, so fall back to a hidden Startup-folder launcher
+# (no admin) when we can't register one. Then start reporting now.
 if ($Install) {
   if (-not $Server) { Write-Error "set -Server http://<dashboard-ip>:8770"; exit 1 }
   $arg = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" -Server $Server"
   if ($Name) { $arg += " -Name $Name" }
-  $action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg
-  $trigger = New-ScheduledTaskTrigger -AtLogOn
-  $set     = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-             -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
-  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $set -Force | Out-Null
-  Start-ScheduledTask -TaskName $TaskName
-  Write-Host "OK: '$TaskName' runs at logon, reporting to $Server."
+  try {
+    $action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $set     = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+               -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $set -Force -ErrorAction Stop | Out-Null
+    Start-ScheduledTask -TaskName $TaskName
+    Remove-Item $VbsPath -ErrorAction SilentlyContinue   # drop any old fallback
+    Write-Host "OK: scheduled task '$TaskName' runs at logon (restarts on failure), reporting to $Server."
+  } catch {
+    # no admin — hidden Startup launcher (runs at this user's logon; "" -> "" for VBS)
+    'CreateObject("WScript.Shell").Run "powershell.exe ' + ($arg -replace '"', '""') + '", 0, False' |
+      Set-Content -Path $VbsPath -Encoding ASCII
+    Start-Process powershell.exe -ArgumentList $arg -WindowStyle Hidden   # start now
+    Write-Host "OK: hidden Startup launcher installed (no admin), reporting to $Server at each logon."
+    Write-Host "    for auto-restart-on-failure, re-run in an ADMIN PowerShell to use a scheduled task."
+  }
   Write-Host "    remove with:  .\agent\report.ps1 -Uninstall"
   exit 0
 }
