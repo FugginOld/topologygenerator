@@ -298,11 +298,18 @@ def generate_network(subnet: str | None = None) -> dict:
         raise RuntimeError((r.stderr or r.stdout or "scan produced nothing").strip()[-800:])
     with open(src, encoding="utf-8") as fh:
         d = json.load(fh)
-    topo = {"name": "Network", "kind": "network",
-            "generated": d.get("generated"), "nodes": _network_cards(d)}
+    cards = _network_cards(d)
+    topo = {"name": "Network", "kind": "network", "generated": d.get("generated"), "nodes": cards}
+    out = {"id": "network", "name": "Network", "nodes": len(cards)}
+    # no gateway collector produced a router? fingerprint it and suggest one
+    if not any(c.get("kind") == "firewall" for c in cards):
+        from core.detect import detect_gateway
+        g = detect_gateway()
+        if g and g["kind"] != "generic":
+            topo["hint"] = out["hint"] = g["hint"]
     with open(store_path("network"), "w", encoding="utf-8") as fh:
         json.dump(topo, fh, indent=2)
-    return {"id": "network", "name": "Network", "nodes": len(topo["nodes"])}
+    return out
 
 
 sys.path.insert(0, ROOT)    # repo root — where local_telemetry.py and the generators live

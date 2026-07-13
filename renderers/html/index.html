@@ -240,7 +240,8 @@ document.getElementById('netbtn').onclick=async e=>{
     const r=await fetch('api/generate-network',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subnet:subnet.trim()})});
     const data=await r.json();
     if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
-    activeId=data.id; await loadList();
+    activeId=data.id; await loadList(); selectTopo(data.id);
+    if(data.hint) showNotice('Gateway detected', `<div>${data.hint}</div>`);
   }catch(err){ showErr('network scan failed:<br><br><code>'+err.message+'</code>'); }
   finally{ btn.disabled=false; btn.innerHTML='⊹ &nbsp; S C A N &nbsp; N E T W O R K'; }
 };
