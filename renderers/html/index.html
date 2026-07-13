@@ -6,32 +6,27 @@
 <title>PC fabric dashboard</title>
 <style>
   /* ---- SKINS: every color lives in a CSS var; the SVG/JS read these too (see refreshColors()).
-         A new skin = one body[data-theme=...] block below. Cyan HUD is the :root default. ---- */
-  :root{--bg0:#04070f;--bg1:#0a1d33;--line:#173553;--hud:#63d0ff;--hud-dim:#2d5f7e;--ink:#a6d9ef;
-    --ok:#46e0a4;--warn:#ffc451;--crit:#ff5f6d;--gen5:#c98bff;--gen4:#63d0ff;--gen3:#46e0a4;--panel:rgba(8,20,34,.82);
-    --glow:99,208,255;--down:#3a4a5a;--card-title:#cdeaf7;--card-fill:rgba(8,20,34,.9);--card-fill-big:rgba(6,16,28,.97);--bar-bg:rgba(45,95,126,.4);}
-  body[data-theme="synthwave"]{--bg0:#0d0221;--bg1:#2a0a4a;--line:#3d2a63;--hud:#ff2e97;--hud-dim:#8a4a9e;--ink:#f5c2e7;
-    --ok:#36f9f6;--warn:#fee440;--crit:#ff5f6d;--gen5:#b967ff;--gen4:#36f9f6;--gen3:#ff2e97;--panel:rgba(26,4,48,.85);
-    --glow:255,46,151;--down:#4a3a5a;--card-title:#ffd6f2;--card-fill:rgba(20,4,40,.9);--card-fill-big:rgba(14,2,30,.97);--bar-bg:rgba(120,60,140,.4);}
-  body[data-theme="blueprint"]{--bg0:#eef1f8;--bg1:#dfe6f3;--line:#b9c7de;--hud:#1b4f8f;--hud-dim:#6f83a3;--ink:#22314d;
-    --ok:#17795e;--warn:#b7791f;--crit:#c0392b;--gen5:#7b4fbf;--gen4:#1b4f8f;--gen3:#17795e;--panel:rgba(255,255,255,.9);
-    --glow:27,79,143;--down:#aeb9cc;--card-title:#22314d;--card-fill:rgba(255,255,255,.92);--card-fill-big:rgba(248,250,254,.98);--bar-bg:rgba(120,140,175,.3);}
-  body[data-theme="unraid"]{--bg0:#0b0b0b;--bg1:#1a1206;--line:#3a2a1a;--hud:#ff8c2f;--hud-dim:#8a5a2a;--ink:#e8c9a0;
-    --ok:#5ecb6e;--warn:#ffc451;--crit:#e22828;--gen5:#ff8c2f;--gen4:#ffb266;--gen3:#5ecb6e;--panel:rgba(20,14,6,.85);
-    --glow:255,140,47;--down:#4a3a2a;--card-title:#f2dcc0;--card-fill:rgba(18,12,6,.9);--card-fill-big:rgba(12,8,4,.97);--bar-bg:rgba(120,80,40,.4);}
-  body[data-theme="tron-red"]{--bg0:#0a0304;--bg1:#2a0808;--line:#4a1518;--hud:#ff3b3b;--hud-dim:#8a3535;--ink:#ffb3b3;
-    --ok:#ff6b6b;--warn:#ffa552;--crit:#ff2020;--gen5:#ff7b9c;--gen4:#ff3b3b;--gen3:#ff8c5a;--panel:rgba(30,6,8,.85);
-    --glow:255,59,59;--down:#4a2a2a;--card-title:#ffd6d6;--card-fill:rgba(24,6,8,.9);--card-fill-big:rgba(16,4,5,.97);--bar-bg:rgba(140,50,50,.4);}
-  body[data-theme="tron-blue"]{--bg0:#020608;--bg1:#04141f;--line:#0e3a4a;--hud:#00e5ff;--hud-dim:#2a7a8e;--ink:#a6e8f5;
-    --ok:#00ffcc;--warn:#ffcf4d;--crit:#ff4d6d;--gen5:#4dd0ff;--gen4:#00e5ff;--gen3:#00ffcc;--panel:rgba(4,16,26,.85);
-    --glow:0,229,255;--down:#2a4a5a;--card-title:#cdeef7;--card-fill:rgba(4,14,22,.9);--card-fill-big:rgba(2,10,16,.97);--bar-bg:rgba(30,90,120,.4);}
+         Flat themes only — solid panels, flat backgrounds, no glass/frost. A new skin = one
+         body[data-theme=...] block below. Neutral Dark is the :root default. ---- */
+  :root{--bg0:#15171c;--bg1:#15171c;--line:#2a2e38;--hud:#6f9bff;--hud-dim:#868c9b;--ink:#e8eaf0;
+    --ok:#3ecf8e;--warn:#ffc451;--crit:#ff5f6d;--gen5:#3ad0b4;--gen4:#6f9bff;--gen3:#3ecf8e;--panel:#181b21;
+    --glow:111,155,255;--down:#4a4f5a;--card-title:#e8eaf0;--card-fill:#1d2027;--card-fill-big:#1d2027;--bar-bg:#2a2e38;}
+  body[data-theme="neutral-light"]{--bg0:#eef0f3;--bg1:#eef0f3;--line:#e5e7ec;--hud:#3b6ef5;--hud-dim:#767b86;--ink:#1a1c22;
+    --ok:#22b36b;--warn:#b7791f;--crit:#c0392b;--gen5:#28c2a8;--gen4:#3b6ef5;--gen3:#22b36b;--panel:#ffffff;
+    --glow:59,110,245;--down:#c0c5cd;--card-title:#1a1c22;--card-fill:#ffffff;--card-fill-big:#ffffff;--bar-bg:#e5e7ec;}
+  body[data-theme="unraid-dark"]{--bg0:#191b1f;--bg1:#191b1f;--line:#333842;--hud:#ff8c2f;--hud-dim:#8b929c;--ink:#e7e9ec;
+    --ok:#5cbf3a;--warn:#ffc451;--crit:#e22828;--gen5:#e22828;--gen4:#ff8c2f;--gen3:#5cbf3a;--panel:#202329;
+    --glow:255,140,47;--down:#4a4f58;--card-title:#e7e9ec;--card-fill:#25282e;--card-fill-big:#25282e;--bar-bg:#333842;}
+  body[data-theme="unraid-light"]{--bg0:#eceded;--bg1:#eceded;--line:#dcdfe2;--hud:#c25e12;--hud-dim:#788089;--ink:#20232a;
+    --ok:#4ea72e;--warn:#b7791f;--crit:#e22828;--gen5:#e22828;--gen4:#ff8c2f;--gen3:#4ea72e;--panel:#f7f8f8;
+    --glow:255,140,47;--down:#b6bcc2;--card-title:#20232a;--card-fill:#ffffff;--card-fill-big:#ffffff;--bar-bg:#dcdfe2;}
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%}
   body{background:radial-gradient(ellipse at 60% -20%,var(--bg1) 0%,var(--bg0) 62%),var(--bg0);
     color:var(--ink);font-family:"DejaVu Sans Mono","Consolas",monospace;overflow:hidden;display:flex;height:100vh;}
 
   /* SIDEBAR */
-  #sidebar{flex:0 0 250px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:rgba(6,14,24,.6);z-index:8}
+  #sidebar{flex:0 0 250px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--panel);z-index:8}
   #sidebar .head{padding:18px 16px 12px;border-bottom:1px solid var(--line)}
   #sidebar .head h2{font-size:12px;letter-spacing:.24em;color:var(--hud);text-shadow:0 0 10px rgba(var(--glow),.4)}
   #sidebar .head .sub{font-size:8.5px;color:var(--hud-dim);letter-spacing:.12em;margin-top:5px}
@@ -43,11 +38,11 @@
   #list{flex:1;overflow-y:auto;padding:0 10px}
   #list .empty{padding:20px 12px;font-size:9px;color:var(--hud-dim);letter-spacing:.08em;line-height:1.8;text-align:center}
   #list .empty code{color:var(--hud)}
-  .item{position:relative;padding:11px 12px;margin:6px 0;border:1px solid var(--line);border-radius:4px;cursor:pointer;transition:.15s;background:rgba(8,20,34,.4)}
-  .item:hover{border-color:var(--hud-dim);background:rgba(8,20,34,.8)}
+  .item{position:relative;padding:11px 12px;margin:6px 0;border:1px solid var(--line);border-radius:4px;cursor:pointer;transition:.15s;background:var(--card-fill)}
+  .item:hover{border-color:var(--hud-dim);background:rgba(var(--glow),.06)}
   .item.active{border-color:var(--hud);background:rgba(var(--glow),.1);box-shadow:inset 0 0 20px rgba(var(--glow),.08)}
   .item.active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--hud);border-radius:4px 0 0 4px}
-  .item .nm{font-size:11px;color:#cdeaf7;letter-spacing:.03em}
+  .item .nm{font-size:11px;color:var(--card-title);letter-spacing:.03em}
   .item .ip{font-size:9px;color:var(--hud);letter-spacing:.04em;margin-top:3px;opacity:.8;font-variant-numeric:tabular-nums}
   .item .mt{font-size:8px;color:var(--hud-dim);letter-spacing:.06em;margin-top:4px}
   #list .section{font-size:8.5px;letter-spacing:.2em;color:var(--hud-dim);padding:12px 4px 4px;margin-top:4px}
@@ -85,11 +80,11 @@
   #zoom button.fit{font-size:8.5px;letter-spacing:.06em}
   #zpct{position:absolute;left:32px;bottom:38px;z-index:8;font-size:9px;color:var(--hud-dim);letter-spacing:.1em}
   #ctxmenu{position:fixed;display:none;z-index:30;min-width:170px;background:var(--panel);border:1px solid var(--hud-dim);
-    border-radius:5px;box-shadow:0 6px 24px rgba(0,0,0,.5);overflow:hidden;backdrop-filter:blur(3px)}
+    border-radius:5px;box-shadow:0 6px 24px rgba(0,0,0,.5);overflow:hidden}
   #ctxmenu .ch{padding:8px 12px 6px;font-size:8px;letter-spacing:.12em;color:var(--hud-dim);border-bottom:1px solid var(--line)}
   #ctxmenu .ci{padding:9px 12px;font-size:10px;letter-spacing:.06em;color:var(--hud);cursor:pointer;transition:.12s}
   #ctxmenu .ci:hover{background:rgba(var(--glow),.12)}
-  #notice{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(2,6,12,.55);backdrop-filter:blur(2px)}
+  #notice{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(2,6,12,.55)}
   #notice .nc-card{position:relative;max-width:430px;width:calc(100% - 60px);background:var(--card-fill-big);border:1px solid var(--hud);
     border-radius:8px;box-shadow:0 14px 44px rgba(0,0,0,.6);padding:20px 22px}
   #notice .nc-x{position:absolute;top:9px;right:12px;border:none;background:transparent;color:var(--hud-dim);font-size:18px;cursor:pointer;line-height:1}
@@ -115,12 +110,10 @@
   <div class="foot">
     <label for="skin" style="display:block;margin-bottom:5px">skin</label>
     <select id="skin">
-      <option value="">cyan hud</option>
-      <option value="synthwave">synthwave</option>
-      <option value="blueprint">blueprint · light</option>
-      <option value="unraid">unraid black</option>
-      <option value="tron-red">tron · red</option>
-      <option value="tron-blue">tron · blue</option>
+      <option value="">neutral · dark</option>
+      <option value="neutral-light">neutral · light</option>
+      <option value="unraid-dark">unraid · dark</option>
+      <option value="unraid-light">unraid · light</option>
     </select>
     <div style="margin-top:8px">drag module · scroll zoom · drag bg to pan</div>
   </div>
@@ -167,8 +160,10 @@ function setTheme(t){
   refreshColors();
 }
 const SKINS=[...document.getElementById('skin').options].map(o=>o.value);
-const wanted=location.hash.slice(1);   // deep-link a skin: dashboard/#synthwave
-setTheme(SKINS.includes(wanted)?wanted:(()=>{try{return localStorage.getItem('skin')||'';}catch(e){return '';}})());
+const wanted=location.hash.slice(1);   // deep-link a skin: dashboard/#unraid-dark
+const stored=(()=>{try{return localStorage.getItem('skin')||'';}catch(e){return '';}})();
+// validate both against the current skin list — a value saved from a retired skin falls back to default
+setTheme(SKINS.includes(wanted)?wanted:(SKINS.includes(stored)?stored:''));
 document.getElementById('skin').value=document.body.dataset.theme||'';
 document.getElementById('skin').onchange=e=>setTheme(e.target.value);
 
