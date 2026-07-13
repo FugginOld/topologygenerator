@@ -6,11 +6,13 @@ VLANs become subgraphs; overlay links render dashed.
 """
 from __future__ import annotations
 
+import re
+
 from core.schema import Topology
 
 
 def _safe(s: str) -> str:
-    return "".join(c if c.isalnum() else "_" for c in (s or "n"))
+    return re.sub(r"\W", "_", s or "n")
 
 
 def render(topo: Topology) -> str:
