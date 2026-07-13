@@ -38,11 +38,6 @@ from datetime import datetime, timezone
 
 DDR = {"DDR5": "DDR5", "DDR4": "DDR4", "DDR3": "DDR3", "LPDDR5": "LPDDR5", "LPDDR4": "LPDDR4"}
 
-try:                                  # reuse the Windows generator's vendor table
-    from make_pc_topology import VENDORS
-except Exception:
-    VENDORS = {}
-
 PCI_CLASS = {"06": "bridge", "03": "display", "02": "network", "01": "storage",
              "0c": "serial bus", "04": "multimedia", "0d": "wireless", "08": "system"}
 
@@ -106,7 +101,7 @@ def pci_cat(class_hex: str) -> dict:
     return {"struct": True}                 # audio, SMBus, ISA, etc.
 
 
-def pci_meta(bdf: str, extra: dict) -> dict:
+def pci_meta(bdf: str, extra: dict, vendor: str | None = None) -> dict:
     """Real per-device identity from sysfs: vendor, device id, revision, class.
     Same shape as the Windows generator's meta — non-generic, straight from silicon."""
     m = {}
@@ -114,8 +109,10 @@ def pci_meta(bdf: str, extra: dict) -> dict:
     dev = read(f"/sys/bus/pci/devices/{bdf}/device").lower().removeprefix("0x")
     rev = read(f"/sys/bus/pci/devices/{bdf}/revision").lower().removeprefix("0x")
     cls = read(f"/sys/bus/pci/devices/{bdf}/class").lower().removeprefix("0x")
-    if ven:
-        m["vendor"] = VENDORS.get(ven, "0x" + ven)
+    if vendor:
+        m["vendor"] = vendor          # lspci-derived name (self-contained; no cross-scanner table)
+    elif ven:
+        m["vendor"] = "0x" + ven      # fallback: raw sysfs vendor id when lspci is absent
     if dev:
         m["device id"] = "0x" + dev
     if rev and rev not in ("00", ""):
@@ -135,20 +132,24 @@ def pci_parent(bdf: str) -> str | None:
     return None
 
 
-def lspci_names() -> dict:
-    """{bdf: 'Vendor Device'} from lspci -Dvmm (machine-readable, no root)."""
-    out, cur, names = run(["lspci", "-Dvmm"]), {}, {}
+def lspci_info() -> tuple[dict, dict]:
+    """(labels, vendors) per BDF from lspci -Dvmm (machine-readable, no root).
+    The vendor name comes straight from lspci — no cross-scanner vendor table."""
+    out, cur, names, vendors = run(["lspci", "-Dvmm"]), {}, {}, {}
     for line in out.splitlines() + [""]:
         if not line.strip():
-            if cur.get("Slot"):
+            slot = cur.get("Slot")
+            if slot:
                 label = (cur.get("Vendor", "") + " " + cur.get("Device", "")).strip()
-                names[cur["Slot"]] = clean(label) or cur["Slot"]
+                names[slot] = clean(label) or slot
+                if cur.get("Vendor"):
+                    vendors[slot] = clean(cur["Vendor"])
             cur = {}
             continue
         if ":" in line:
             k, v = line.split(":", 1)
             cur[k.strip()] = v.strip()
-    return names
+    return names, vendors
 
 
 def cpu_info() -> tuple[str, int]:
@@ -344,7 +345,7 @@ def usb_devices() -> list[dict]:
 
 
 def build() -> list[dict]:
-    names = lspci_names()
+    names, pci_vendors = lspci_info()
     nets = net_links()
     devs = sorted(glob.glob("/sys/bus/pci/devices/*"))
     bdfs = [os.path.basename(d) for d in devs]
@@ -399,7 +400,7 @@ def build() -> list[dict]:
                 node["sub"] += (" · link up" if nets[bdf]["up"] else " · no link")
                 if spd > 0:
                     node["cap"] = spd / 1000
-        node["meta"] = pci_meta(bdf, {})
+        node["meta"] = pci_meta(bdf, {}, pci_vendors.get(bdf))
         p = pci_parent(bdf)
         node["_p"] = p if p in kept else root_key
         nodes[bdf] = node
@@ -516,7 +517,9 @@ def _selftest() -> None:
     import io
     sample = "Slot:\t0000:00:1f.6\nClass:\tEthernet controller\nVendor:\tIntel Corporation\nDevice:\tI219-V\n\n"
     g = globals(); g["run"] = lambda c: sample
-    assert lspci_names()["0000:00:1f.6"] == "Intel I219-V"
+    labels, vendors = lspci_info()
+    assert labels["0000:00:1f.6"] == "Intel I219-V"
+    assert vendors["0000:00:1f.6"] == "Intel"          # vendor comes straight from lspci
     # pci_meta parses sysfs vendor/device/revision/class files
     sysfs = {"vendor": "0x8086", "device": "0x9a09", "revision": "0x02", "class": "0x030000"}
     g["read"] = lambda p: sysfs.get(p.rsplit("/", 1)[-1], "")
