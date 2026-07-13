@@ -11,6 +11,7 @@
 set -euo pipefail
 
 REPO="${TOPO_REPO:-https://github.com/FugginOld/topologygenerator.git}"
+TARURL="${REPO%.git}/archive/refs/heads/main.tar.gz"   # git-free fallback (curl+tar)
 SERVER="${TOPO_SERVER:-http://192.168.1.225:8770}"
 
 # Unraid runs its OS from RAM, so anything under / is wiped on reboot — clone to
@@ -35,7 +36,7 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then CAN_ROOT=true; else CAN_ROOT=fal
 # dpkg but the tools already present (e.g. a Pi) — then never invokes apt at all.
 have() { command -v "$1" >/dev/null 2>&1; }
 need=""
-have git     || need="$need git"
+{ have git || have curl || have wget; } || need="$need git"   # any one can fetch the repo
 have python3 || need="$need python3"
 have lsblk   || need="$need util-linux"                        # storage enumeration
 [ -n "$(ls -A /sys/bus/pci/devices 2>/dev/null)" ] && ! have lspci && need="$need pciutils"  # PCI names; skip on a Pi
@@ -51,10 +52,15 @@ if [ -n "$need" ]; then
   fi
 fi
 
-if [ -d "$DIR/.git" ]; then
-  git -C "$DIR" pull --ff-only
+# Fetch the repo: git if present (clone/pull), else download the tarball with
+# curl/wget + tar. Lets minimal hosts (Unraid has no git) provision anyway.
+if have git; then
+  if [ -d "$DIR/.git" ]; then git -C "$DIR" pull --ff-only; else git clone "$REPO" "$DIR"; fi
 else
-  git clone "$REPO" "$DIR"
+  echo "no git — fetching source tarball"
+  mkdir -p "$DIR"
+  if have curl; then curl -fsSL "$TARURL" | tar xz -C "$DIR" --strip-components=1
+  else wget -qO- "$TARURL" | tar xz -C "$DIR" --strip-components=1; fi
 fi
 
 chmod +x "$DIR/report.sh"
@@ -74,9 +80,11 @@ if [ "$IS_UNRAID" = true ]; then
   cat > "$LAUNCHER" <<EOF
 #!/bin/bash
 # topology reporting agent launcher — persisted on the Unraid flash by bootstrap
-DIR="$DIR"; SERVER="$SERVER"; REPO="$REPO"
+DIR="$DIR"; SERVER="$SERVER"; TARURL="$TARURL"
 for i in \$(seq 1 60); do [ -d "\$(dirname "\$DIR")" ] && break; sleep 5; done  # wait ~5m for array
-[ -d "\$DIR/.git" ] || git clone "\$REPO" "\$DIR"
+if [ ! -f "\$DIR/report.sh" ]; then          # re-fetch if appdata was wiped (git-free)
+  mkdir -p "\$DIR"; curl -fsSL "\$TARURL" | tar xz -C "\$DIR" --strip-components=1
+fi
 exec "\$DIR/report.sh" "\$SERVER"
 EOF
   chmod +x "$LAUNCHER"
