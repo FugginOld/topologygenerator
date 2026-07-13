@@ -30,6 +30,8 @@ jobs:
         run: python tests/test_pipeline.py
       - name: Card contract + network-cards adapter
         run: python tests/test_cards.py
+      - name: Store path-injection barrier + slug policy
+        run: python renderers/html/store.py
       - name: Linux collector self-test
         run: python make_linux_topology.py --selftest
 

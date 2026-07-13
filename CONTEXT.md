@@ -35,3 +35,14 @@ its output against `Card` at the `build()` boundary). The third,
 that file *alone* over SSH to hosts without the repo, so it must stay single-file
 self-contained and can't import `Card`. It's the deliberate exception — keep it
 in sync with `Card`.
+
+## Store
+
+The **topology persistence** module (`renderers/html/store.py`): save / load /
+list / delete over the guarded directory `out/topologies/*.json`, plus `path()`
+— the single path-injection barrier every user-supplied id passes through
+(basename → charset allowlist → realpath containment). Deep and narrow: bytes
+in/out, no presentation, so it imports nothing server-specific and its barrier is
+unit-tested with no HTTP. `topology_server` depends on it one-way; the sidebar-row
+shaping (`kind`/`ip`, which needs `server_ip`) stays a view helper in the server,
+not in the store.

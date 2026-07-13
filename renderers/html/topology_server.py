@@ -20,7 +20,6 @@ import http.server
 import ipaddress
 import json
 import os
-import re
 import shlex
 import socket
 import subprocess
@@ -28,9 +27,10 @@ import sys
 import time
 from urllib.parse import urlparse, parse_qs
 
+import store   # topology persistence (same dir) — see store.py / CONTEXT.md
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-STORE = os.path.join(ROOT, "out", "topologies")
 
 
 INGEST_TOKEN = os.environ.get("TOPO_TOKEN", "")   # optional shared secret for /api/ingest
@@ -54,57 +54,18 @@ def server_ip() -> str:
     return _server_ip_cache or ""
 
 
-def store_path(tid: str) -> str:
-    """Resolve <tid>.json inside STORE, refusing any id that escapes it.
+# persistence (the store_path barrier, save/load/list/delete, slug policy) lives
+# in store.py. What stays here is the sidebar *row* shaping — a view concern that
+# needs server_ip, so it doesn't belong in the store.
 
-    The single barrier for every user-supplied id: strip directory parts,
-    then confirm the resolved file really sits directly in STORE (blocks
-    '..', absolute paths, and symlink tricks). Raises ValueError otherwise.
-    """
-    name = os.path.basename(tid)
-    # allowlist: an id is only ever a slug/hostname — reject anything else up
-    # front, so no separators or traversal sequences can reach the filesystem.
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
-        raise ValueError("bad topology id")
-    fp = os.path.realpath(os.path.join(STORE, name + ".json"))
-    if os.path.dirname(fp) != os.path.realpath(STORE):
-        raise ValueError("bad topology id")
-    return fp
-
-
-def slug(name: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "topology"
-    return f"{s}-{int(time.time())}"  # timestamp keeps ids unique
-
-
-def stable_slug(name: str) -> str:
-    """No timestamp — one stable entry per host, so re-pushes overwrite."""
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "host"
-
-
-def save_ingest(topo: dict, remote: str) -> dict:
-    """Store a topology pushed by a remote agent, keyed by its name (hostname)."""
-    name = (topo.get("name") or "host").strip()
-    tid = stable_slug(name)
-    topo["name"] = name
-    topo["source"] = remote
-    os.makedirs(STORE, exist_ok=True)
-    with open(store_path(tid), "w", encoding="utf-8") as fh:
-        json.dump(topo, fh, indent=2)
-    return {"id": tid, "name": name}
-
-
-def entry(path: str) -> dict:
-    """One sidebar list row from a saved file (cheap read, tolerates junk)."""
-    with open(path, encoding="utf-8") as fh:
-        d = json.load(fh)
-    fid = os.path.splitext(os.path.basename(path))[0]
-    # the network map is saved as id "network"; also honour the kind tag so
+def _list_row(tid: str, d: dict) -> dict:
+    """One sidebar row from a loaded topology."""
+    # the network map is saved as id "network"; honour the kind tag too so
     # pre-tag files still categorize correctly without a re-scan
-    is_network = d.get("kind") == "network" or fid == "network"
+    is_network = d.get("kind") == "network" or tid == "network"
     return {
-        "id": fid,
-        "name": d.get("name") or fid,
+        "id": tid,
+        "name": d.get("name") or tid,
         "generated": d.get("generated", ""),
         "modules": len(d.get("nodes", [])),
         "kind": "network" if is_network else "host",
@@ -114,18 +75,15 @@ def entry(path: str) -> dict:
     }
 
 
-def list_topos() -> list[dict]:
-    if not os.path.isdir(STORE):
-        return []
-    out = []
-    for f in sorted(os.listdir(STORE)):
-        if f.endswith(".json"):
-            try:
-                out.append(entry(os.path.join(STORE, f)))
-            except Exception:
-                pass  # skip unreadable/corrupt files rather than 500
-    out.sort(key=lambda e: e["generated"], reverse=True)
-    return out
+def list_rows() -> list[dict]:
+    rows = []
+    for tid in store.ids():
+        try:
+            rows.append(_list_row(tid, store.load(tid)))
+        except Exception:
+            pass  # skip unreadable/corrupt files rather than 500
+    rows.sort(key=lambda e: e["generated"], reverse=True)
+    return rows
 
 
 # pick the collector for whatever OS the dashboard is served from
@@ -184,14 +142,14 @@ def scan_host(host: str, name: str) -> dict:
     except ValueError:
         raise RuntimeError("remote scan returned no JSON (is python3 on the host?)\n\n" + agent_hint)
     topo["name"] = name              # our label, applied here — never in the ssh command
-    return save_ingest(topo, host)   # source=host -> card shows its IP
+    return store.save(topo, host)    # source=host -> card shows its IP
 
 
 def generate(name: str) -> dict:
     """Read this host's hardware fabric and save it as a new topology."""
-    tid = slug(name)
-    os.makedirs(STORE, exist_ok=True)
-    out = store_path(tid)
+    tid = store.slug(name)
+    os.makedirs(store.STORE, exist_ok=True)
+    out = store.path(tid)
     r = subprocess.run(
         [sys.executable, GENERATOR, "--out", out, "--name", name],
         cwd=ROOT, capture_output=True, text=True,
@@ -209,7 +167,6 @@ def generate_network(subnet: str | None = None) -> dict:
     """Ping-sweep the network and save it as the 'network' topology card. Uses
     config.yaml if present (honours the user's zones/collectors), else a throwaway
     config that enables pingsweep with auto subnet detection — zero setup."""
-    os.makedirs(STORE, exist_ok=True)
     cfg_path = os.path.join(ROOT, "config.yaml")
     if not os.path.exists(cfg_path):
         cfg_path = os.path.join(ROOT, "out", ".netscan.yaml")
@@ -236,8 +193,7 @@ def generate_network(subnet: str | None = None) -> dict:
         g = detect_gateway()
         if g and g["kind"] != "generic":
             topo["hint"] = out["hint"] = g["hint"]
-    with open(store_path("network"), "w", encoding="utf-8") as fh:
-        json.dump(topo, fh, indent=2)
+    store.save(topo)                 # name "Network" -> id "network"
     return out
 
 
@@ -261,8 +217,7 @@ def telemetry_local() -> dict:
 def _is_remote(tid: str) -> bool:
     """A topology carrying a 'source' field was pushed by a remote agent."""
     try:
-        with open(store_path(tid), encoding="utf-8") as fh:
-            return "source" in json.load(fh)
+        return "source" in store.load(tid)
     except (OSError, ValueError):
         return False
 
@@ -302,7 +257,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.split("?")[0] == "/api/list":
-            return self._send(200, list_topos())
+            return self._send(200, list_rows())
         if self.path.split("?")[0] == "/api/telemetry":
             host = parse_qs(urlparse(self.path).query).get("host", [""])[0]
             try:
@@ -312,13 +267,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/t/"):
             tid = os.path.basename(self.path.split("?")[0])[:-5]  # strip .json
             try:
-                fp = store_path(tid)
-            except ValueError:
+                return self._send(200, store.load(tid))
+            except (ValueError, OSError):
                 return self._send(404, {"error": "not found"})
-            if not os.path.isfile(fp):
-                return self._send(404, {"error": "not found"})
-            with open(fp, encoding="utf-8") as fh:
-                return self._send(200, json.load(fh))
         return super().do_GET()
 
     def do_POST(self):
@@ -345,12 +296,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._send(502, {"error": str(e), "server_ip": server_ip(),
                                             "ssh_tried": bool(_remote_scan_cfg().get("enabled"))})
             if self.path == "/api/delete":
-                try:
-                    fp = store_path(self._body().get("id", ""))
-                except ValueError:
-                    return self._send(200, {"ok": True})  # nothing to delete
-                if os.path.isfile(fp):
-                    os.remove(fp)
+                store.delete(self._body().get("id", ""))   # bad/absent id is a no-op
                 return self._send(200, {"ok": True})
             if self.path == "/api/ingest":
                 if INGEST_TOKEN and self.headers.get("X-Token") != INGEST_TOKEN:
@@ -358,12 +304,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 topo = self._body()
                 if not isinstance(topo, dict) or not topo.get("nodes"):
                     return self._send(400, {"error": "body must be a topology with a 'nodes' array"})
-                return self._send(200, save_ingest(topo, self.client_address[0]))
+                return self._send(200, store.save(topo, self.client_address[0]))
             if self.path == "/api/telemetry":
                 if INGEST_TOKEN and self.headers.get("X-Token") != INGEST_TOKEN:
                     return self._send(403, {"error": "bad or missing token"})
                 b = self._body()
-                hid = stable_slug(b.get("host", ""))
+                hid = store.stable_slug(b.get("host", ""))
                 if not hid:
                     return self._send(400, {"error": "missing host"})
                 data = {k: b.get(k, z) for k, z in _tele.ZERO.items()}
@@ -381,7 +327,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8770)
     args = ap.parse_args()
-    os.makedirs(STORE, exist_ok=True)
+    os.makedirs(store.STORE, exist_ok=True)
     with http.server.ThreadingHTTPServer(("", args.port), Handler) as httpd:
         print(f"dashboard on http://localhost:{args.port}  (Ctrl-C to stop)")
         try:
