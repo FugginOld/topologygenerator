@@ -8,7 +8,7 @@ one dashboard.
 - **Each reporting machine** runs a small **agent** that scans its own hardware
   and pushes its topology + live telemetry to the server.
 
-```
+```text
    Windows PC ─┐
    Linux box  ─┼──►  http://192.168.1.225:8770   (topology_server.py on the Windows server)
    Debian srv ─┘      dashboard lists every host, live HUD per host
@@ -64,23 +64,28 @@ Do this **once**, on the machine that will host the dashboard.
 
 ## Part B — Add a Linux reporting machine
 
-### Fastest: one-line bootstrap (fresh Debian/Ubuntu)
+### Fastest: one-line bootstrap
 
-Installs dependencies, clones the repo, and starts reporting in one shot:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | bash
-```
-
-To label this machine's card (recommended — see **Naming** below), set
-`TOPO_NAME` before the pipe:
+Fetches the repo (git **or** `curl`+`tar`), installs only the tools this host is
+actually missing, and sets up **background reporting that survives reboots** — it
+adapts to the host: a **systemd service** on most Linux, the boot **`go` script**
+on **Unraid**, or foreground where neither is available. Same command everywhere:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_NAME=proxmox-b bash
+curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_SERVER=http://192.168.1.225:8770 bash
 ```
+
+- **Name the card:** prepend `TOPO_NAME=proxmox-b` (see **Naming**). Defaults to the hostname.
+- **One-time snapshot** (laptop/PC, no persistent service): add `TOPO_ONCE=1`.
+- **Unraid:** clones to `/mnt/user/appdata`, persists via `/boot/config/go`; needs `python3` (no git — no NerdTools required).
+- Prompts once for `sudo` where needed; runs directly if you're already root.
 
 > Requires the GitHub repo to be **public**. If it's private, use the manual
 > steps below with `git clone` and your credentials.
+>
+> **Tip:** from the dashboard's network map (**SCAN NETWORK**), right-click any
+> host → *Generate machine topology* to get this exact command pre-filled for
+> that box (or have the server SSH-scan it directly, if `remote_scan` is set).
 
 ### Manual (any Linux)
 
@@ -143,7 +148,12 @@ to make it persistent.
 
 ## Part D — Keep reporting across reboots
 
-### Linux — systemd service
+> The **bootstrap one-liner already does this** (systemd on Linux, `go` script on
+> Unraid). Use the steps below only for a hand-built install, or on Windows.
+
+### Linux — systemd service (manual)
+
+Bootstrap generates this unit for you; to do it by hand:
 
 ```bash
 # edit User= and the two paths to match your machine
@@ -246,8 +256,8 @@ Add `--report` (what `report.sh`/`report.ps1` do) to also stream live telemetry.
 | `local_telemetry.py` | live CPU/net/disk/temp sampler (both OSes) |
 | `topology_agent.py` | push topology + telemetry to the server |
 | `report.sh` / `report.ps1` | run the agent (self-updating) |
-| `bootstrap.sh` | fresh-Debian one-liner |
-| `systemd/topology-agent.service` | persistent Linux reporting |
+| `bootstrap.sh` | one-liner install — adapts to host (systemd / Unraid go / snapshot), git-free |
+| `systemd/topology-agent.service` | persistent Linux reporting (bootstrap installs this for you) |
 
 **Server port:** `8770` (change with `--port`; the dashboard reads the same host
 it's served from, so no client config needed).
