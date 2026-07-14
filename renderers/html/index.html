@@ -95,6 +95,33 @@
   #notice .nc-cmd{margin-top:9px;padding:9px 11px;background:rgba(var(--glow),.08);border:1px solid var(--line);border-radius:4px;
     color:var(--hud);font-size:10.5px;word-break:break-all;user-select:all}
   #notice.busy .nc-x{display:none}
+  #notice .nc-actions{display:flex;gap:10px;margin-top:16px}
+  #notice .nc-btn{flex:1;padding:9px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--hud);font-family:inherit;font-size:10px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:.15s}
+  #notice .nc-btn:hover{border-color:var(--hud);background:rgba(var(--glow),.1)}
+  #notice .nc-btn.yes{border-color:var(--hud);background:rgba(var(--glow),.12)}
+
+  /* VIEW TABS (per-topology: topology vs gateway dashboard) */
+  #viewtabs{position:absolute;top:22px;left:50%;transform:translateX(-50%);z-index:10;display:none;
+    border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--panel)}
+  #viewtabs .vt{padding:7px 17px;border:none;background:transparent;color:var(--hud-dim);font-family:inherit;
+    font-size:10px;letter-spacing:.14em;cursor:pointer;transition:.15s}
+  #viewtabs .vt:hover{color:var(--hud)}
+  #viewtabs .vt.active{background:rgba(var(--glow),.14);color:var(--hud)}
+  #viewtabs .vt+.vt{border-left:1px solid var(--line)}
+
+  /* GATEWAY DASHBOARD frame (shown when the DASHBOARD tab is active) */
+  #dash{position:absolute;inset:70px 32px 40px;z-index:9;display:none;flex-direction:column;
+    background:var(--panel);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  #main.dashview #dash{display:flex}
+  #main.dashview #stage,#main.dashview #zoom,#main.dashview #zpct,#main.dashview header .rt{display:none}
+  #dashbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);
+    font-size:10px;color:var(--hud-dim);letter-spacing:.06em}
+  #dashurl{flex:1;color:var(--hud);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #dashbar button{border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--hud);
+    font-family:inherit;font-size:9px;letter-spacing:.1em;padding:5px 10px;cursor:pointer;transition:.15s}
+  #dashbar button:hover{border-color:var(--hud);background:rgba(var(--glow),.1)}
+  #dashframe{flex:1;border:none;width:100%;background:#fff}
+  #dashhint{padding:6px 12px;font-size:8.5px;color:var(--hud-dim);letter-spacing:.04em;border-top:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -126,7 +153,20 @@
     <div><h1 id="title">—</h1><div class="tag" id="subtitle"></div></div>
     <div class="rt">STATE <b id="stat">NOMINAL</b><br>PORTS <b id="ports">0/0</b> up<br>NET <b id="net">0.0</b> Gb/s<br>STORAGE <b id="sto">0</b> MB/s<br>CPU <b id="pkg">0</b>%<b id="cputemp"></b></div>
   </header>
+  <div id="viewtabs">
+    <button id="tabTopo" class="vt active">TOPOLOGY</button>
+    <button id="tabDash" class="vt">DASHBOARD</button>
+  </div>
   <div id="stage"><svg id="svg"></svg></div>
+  <div id="dash">
+    <div id="dashbar">
+      <span id="dashurl" title="dashboard address"></span>
+      <button id="dashedit" title="change the address">EDIT</button>
+      <button id="dashopen" title="open in a new browser tab">OPEN ↗</button>
+    </div>
+    <iframe id="dashframe" referrerpolicy="no-referrer" allow="fullscreen"></iframe>
+    <div id="dashhint">Panel blank? Many gateways block embedding (X-Frame-Options / TLS) — use <b>OPEN ↗</b>.</div>
+  </div>
   <div id="err"></div>
   <div id="ctxmenu"></div>
   <div id="notice"><div class="nc-card"><button class="nc-x" title="close">×</button><div class="nc-title"></div><div class="nc-body"></div></div></div>
@@ -208,6 +248,7 @@ async function selectTopo(id){
     document.getElementById('title').innerHTML=spaced(TOPO.name||'PC FABRIC');
     document.getElementById('subtitle').textContent=(TOPO.nodes||[]).length+' modules · PCIe fabric · simulated telemetry';
     laidOut=false; layout(); fit();
+    setView('topology'); viewtabs.style.display='flex';   // reset to Topology on every switch
   }catch(e){ showErr('could not load '+id+'.json ('+e.message+')'); }
 }
 async function delTopo(t){
@@ -226,7 +267,7 @@ document.getElementById('addbtn').onclick=async e=>{
     if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
     activeId=data.id; await loadList();
   }catch(err){ showErr('generate failed:<br><br><code>'+err.message+'</code>'); }
-  finally{ btn.disabled=false; btn.innerHTML='+ &nbsp; G E N E R A T E'; }
+  finally{ btn.disabled=false; btn.textContent='+ Generate Current Machine'; }
 };
 document.getElementById('netbtn').onclick=async e=>{
   const subnet=prompt('Subnet to scan (blank = auto-detect this machine’s /24):','');
@@ -239,10 +280,62 @@ document.getElementById('netbtn').onclick=async e=>{
     activeId=data.id; await loadList(); selectTopo(data.id);
     if(data.hint) showNotice('Gateway detected', `<div>${data.hint}</div>`);
   }catch(err){ showErr('network scan failed:<br><br><code>'+err.message+'</code>'); }
-  finally{ btn.disabled=false; btn.innerHTML='⊹ &nbsp; S C A N &nbsp; N E T W O R K'; }
+  finally{ btn.disabled=false; btn.textContent='⊹ Scan Network'; }
 };
 function spaced(s){return (s||'').toUpperCase().split('').join(' ');}
-function showErr(html){const err=document.getElementById('err');err.style.display='flex';err.style.color='var(--warn)';err.innerHTML=html;svg.innerHTML='';}
+
+// ================= VIEW: topology <-> gateway dashboard =================
+const viewtabs=document.getElementById('viewtabs'), mainEl=document.getElementById('main');
+const dashframe=document.getElementById('dashframe'), dashurlEl=document.getElementById('dashurl');
+let viewMode='topology';
+const loadDashUrls=()=>{ try{return JSON.parse(localStorage.getItem('dashUrls')||'{}');}catch(e){return {};} };
+let dashUrls=loadDashUrls();
+const saveDashUrls=()=>{ try{localStorage.setItem('dashUrls',JSON.stringify(dashUrls));}catch(e){} };
+
+// the gateway's own web UI = the firewall node's address (UniFi/OPNsense/pfSense serve https)
+function gatewayUrl(){
+  const g=(TOPO&&TOPO.nodes||[]).find(n=>n.kind==='firewall');
+  const ip=g&&((g.meta&&g.meta.ip)||g.sub);
+  return ip?('https://'+String(ip).trim()):null;
+}
+function setView(mode){
+  viewMode=mode;
+  mainEl.classList.toggle('dashview',mode==='dashboard');
+  document.getElementById('tabTopo').classList.toggle('active',mode==='topology');
+  document.getElementById('tabDash').classList.toggle('active',mode==='dashboard');
+  if(mode!=='dashboard') dashframe.src='about:blank';   // stop loading the gateway when hidden
+}
+function openDash(url){
+  dashUrls[activeId]=url; saveDashUrls();
+  dashurlEl.textContent=url; dashframe.src=url;
+  setView('dashboard');
+}
+// DASHBOARD tab: ask before generating one the first time, then remember it per topology
+document.getElementById('tabDash').onclick=()=>{
+  if(!activeId) return;
+  const known=dashUrls[activeId];
+  if(known){ openDash(known); return; }
+  confirmNotice('Dashboard','Do you want to generate a dashboard for this topology?',()=>{
+    let url=gatewayUrl();
+    if(!url) url=(prompt('Dashboard address for this topology:','https://')||'').trim();
+    if(!url){ setView('topology'); return; }
+    openDash(url);
+  });
+};
+document.getElementById('tabTopo').onclick=()=>setView('topology');
+document.getElementById('dashopen').onclick=()=>{ const u=dashUrls[activeId]; if(u) window.open(u,'_blank','noopener'); };
+document.getElementById('dashedit').onclick=()=>{
+  const u=(prompt('Dashboard address:',dashUrls[activeId]||'https://')||'').trim();
+  if(u) openDash(u);
+};
+// styled Yes/No confirm, reusing the notice card
+function confirmNotice(title,msg,onYes){
+  showNotice(title,`<div>${msg}</div><div class="nc-actions"><button class="nc-btn yes">Yes</button><button class="nc-btn no">No</button></div>`);
+  const b=notice.querySelector('.nc-body');
+  b.querySelector('.yes').onclick=()=>{ hideNotice(); onYes&&onYes(); };
+  b.querySelector('.no').onclick=()=>{ hideNotice(); setView('topology'); };
+}
+function showErr(html){const err=document.getElementById('err');err.style.display='flex';err.style.color='var(--warn)';err.innerHTML=html;svg.innerHTML='';setView('topology');viewtabs.style.display='none';}
 
 // ================= LAYOUT (tree columns) =================
 function layout(){
