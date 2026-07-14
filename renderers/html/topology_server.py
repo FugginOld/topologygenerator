@@ -119,6 +119,20 @@ def gateway_dashboard() -> dict:
         return {"error": f"gateway query failed: {e}"}
 
 
+def gateway_speedtest() -> dict:
+    """Kick off a WAN speedtest on the gateway; the result appears in a later
+    /api/gwdash poll (speedtest_status Running -> Idle with new xput values)."""
+    cfg = _cfg_block("unifi")
+    if not cfg.get("enabled"):
+        return {"error": "UniFi is not enabled in config.yaml."}
+    try:
+        from collectors.unifi import UnifiCollector
+        UnifiCollector(cfg).run_speedtest()
+        return {"ok": True}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def scan_host(host: str, name: str) -> dict:
     """SSH into a Linux host, run the hardware scanner over the pipe, ingest the
     result as a machine card. Raises with the agent fallback if SSH isn't set up."""
@@ -293,6 +307,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if self.path == "/api/gwspeedtest":
+                return self._send(200, gateway_speedtest())
             if self.path == "/api/generate":
                 name = (self._body().get("name") or "topology").strip()
                 return self._send(200, generate(name))

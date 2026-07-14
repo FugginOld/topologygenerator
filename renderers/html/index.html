@@ -172,6 +172,7 @@
     <div id="dashbar">
       <span id="dashtitle">GATEWAY DASHBOARD</span>
       <span id="dashupd"></span>
+      <button id="dashspeed" title="run a WAN speedtest (saturates the link briefly)">SPEEDTEST</button>
       <button id="dashrefresh" title="refresh now">REFRESH</button>
       <button id="dashopen" title="open the gateway's own UI in a new tab">OPEN UI ↗</button>
     </div>
@@ -326,6 +327,12 @@ document.getElementById('tabDash').onclick=()=>{
 document.getElementById('tabTopo').onclick=()=>setView('topology');
 document.getElementById('dashrefresh').onclick=loadGwDash;
 document.getElementById('dashopen').onclick=()=>{ const u=gatewayUrl(); if(u) window.open(u,'_blank','noopener'); else alert('No gateway address known for this topology.'); };
+document.getElementById('dashspeed').onclick=async()=>{
+  const btn=document.getElementById('dashspeed'); btn.disabled=true;
+  document.getElementById('dashupd').textContent='speedtest running…';
+  try{ await fetch('api/gwspeedtest',{method:'POST'}); }catch(e){}
+  let n=0; const t=setInterval(()=>{ loadGwDash(); if(++n>=8){ clearInterval(t); btn.disabled=false; } },5000);  // result lands in ~30s
+};
 
 async function loadGwDash(){
   try{
@@ -358,15 +365,23 @@ function renderGwDash(d){
   line.appendChild(hel('span','dbadge '+(wan.up?'ok':'bad'), wan.up?'ONLINE':'OFFLINE'));
   if(wan.ip) line.appendChild(hel('span','dv',wan.ip));
   wc.appendChild(line);
-  if(wan.isp) wc.appendChild(drow('ISP',wan.isp));
+  if(wan.isp) wc.appendChild(drow('ISP',wan.isp+(wan.asn?' · AS'+wan.asn:'')));
   if(wan.latency) wc.appendChild(drow('Latency',wan.latency+' ms'));
+  if(wan.availability) wc.appendChild(drow('Availability (24h)',wan.availability+'%'));
   if(wan.down_mbps||wan.up_mbps) wc.appendChild(drow('Speedtest',wan.down_mbps+' ↓ / '+wan.up_mbps+' ↑ Mbps'));
+  else if(wan.speedtest_status&&wan.speedtest_status!=='Idle') wc.appendChild(drow('Speedtest',wan.speedtest_status+'…'));
   p.appendChild(wc);
   p.appendChild(statCard('Download',mbps(tp.rx_bps).toFixed(1),'Mbps'));
   p.appendChild(statCard('Upload',mbps(tp.tx_bps).toFixed(1),'Mbps'));
   const cc=statCard('Clients',cl.total!=null?cl.total:'—');
   cc.appendChild(hel('div','du',(cl.wired||0)+' wired · '+(cl.wireless||0)+' wireless'+(cl.guest?' · '+cl.guest+' guest':'')+(cl.iot?' · '+cl.iot+' iot':'')));
   p.appendChild(cc);
+  const nets=d.networks||[];
+  if(nets.length){
+    const nc=hel('div','dcard'); nc.appendChild(hel('div','dl','Networks'));
+    nets.forEach(n=>{ const r=hel('div','drow'); r.appendChild(hel('span','dk',n.name)); r.appendChild(hel('span',null,n.clients+' cl')); nc.appendChild(r); });
+    p.appendChild(nc);
+  }
   const gc=hel('div','dcard'); gc.appendChild(hel('div','dl','Gateway')); gc.appendChild(hel('div','dv',gw.name||'—'));
   if(gw.model) gc.appendChild(drow('Model',gw.model));
   if(gw.firmware) gc.appendChild(drow('Firmware',gw.firmware));

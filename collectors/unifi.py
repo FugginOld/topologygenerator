@@ -218,6 +218,12 @@ def health_summary(health: list[dict], devices: list[dict], clients: list[dict])
     gss = wan.get("gw_system-stats") or gwdev.get("system-stats") or {}
     status = wan.get("status") or www.get("status")
     wired = sum(1 for c in clients if c.get("is_wired"))
+    uw = (wan.get("uptime_stats") or {}).get("WAN") or {}
+    netcounts: dict = {}
+    for c in clients:
+        nm = c.get("network") or c.get("last_connection_network_name")
+        if nm:
+            netcounts[nm] = netcounts.get(nm, 0) + 1
     return {
         "gateway": {
             "name": wan.get("gw_name") or gwdev.get("name") or gwdev.get("model"),
@@ -236,6 +242,10 @@ def health_summary(health: list[dict], devices: list[dict], clients: list[dict])
             "latency": round(_num(www.get("latency") or wan.get("latency"))),
             "down_mbps": round(_num(www.get("xput_down")), 1),   # last speedtest (0 = idle)
             "up_mbps": round(_num(www.get("xput_up")), 1),
+            "availability": round(_num(uw.get("availability")), 1),
+            "asn": wan.get("asn"),
+            "isp_org": wan.get("isp_organization"),
+            "speedtest_status": www.get("speedtest_status"),
         },
         "throughput": {
             "rx_bps": _num(wan.get("rx_bytes-r")),   # live download rate (WAN in)
@@ -248,6 +258,8 @@ def health_summary(health: list[dict], devices: list[dict], clients: list[dict])
             "guest": sum(1 for c in clients if c.get("is_guest")) or int(_num(lan.get("num_guest"))),
             "iot": int(_num(lan.get("num_iot"))),
         },
+        "networks": sorted(({"name": k, "clients": v} for k, v in netcounts.items()),
+                           key=lambda x: -x["clients"]),
         "devices": [   # infra beyond the gateway (switches/APs); the gateway has its own tile
             {
                 "name": d.get("name") or d.get("model") or d.get("mac"),
@@ -313,6 +325,28 @@ class UnifiCollector(Collector):
         except (urllib.error.URLError, ValueError) as e:
             log.warning("unifi GET %s failed: %s", path, e)
             return []
+
+    def _post(self, path: str, body: dict) -> dict:
+        op = self._build_opener()
+        if op is None:
+            return {}
+        url = self.cfg["url"].rstrip("/")
+        site = self.cfg.get("site", "default")
+        req = urllib.request.Request(f"{url}/proxy/network/api/s/{site}/{path}",
+                                     data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        if self._api_key():
+            req.add_header("X-API-KEY", self._api_key())
+        try:
+            with op.open(req, timeout=20) as r:
+                return json.load(r)
+        except (urllib.error.URLError, ValueError) as e:
+            log.warning("unifi POST %s failed: %s", path, e)
+            return {}
+
+    def run_speedtest(self) -> dict:
+        """Kick off a WAN speedtest; results land in the next stat/health (~30s)."""
+        return self._post("cmd/devmgr", {"cmd": "speedtest"})
 
     def _fetch(self):
         """Pull all three lists once; reused by zones() and collect()."""
@@ -394,7 +428,7 @@ if __name__ == "__main__":  # ponytail: transform self-check, no live controller
     assert di[2]["kind"] == "link" and di[2]["dst"] == "47.1.2.3", di[2]
     assert di[3]["nodekind"] == "switch", di[3]
     assert di[4]["dst"] == "aa:bb:cc:00:00:00" and di[4]["port"] == 1, di[4]
-    cl = [{"mac": "de:ad:be:ef:00:01", "ip": "10.0.50.9", "hostname": "cam1",
+    cl = [{"mac": "de:ad:be:ef:00:01", "ip": "10.0.50.9", "hostname": "cam1", "network": "Default",
            "is_wired": True, "sw_mac": "aa:bb:cc:00:00:01", "sw_port": 7}]
     n = clients_to_nodes(cl, "t")
     assert n[0]["name"] == "cam1" and n[0]["nodekind"] == "host", n
@@ -402,12 +436,15 @@ if __name__ == "__main__":  # ponytail: transform self-check, no live controller
     assert lk[0]["dst"] == "aa:bb:cc:00:00:01" and lk[0]["port"] == "7", lk
     hs = health_summary(
         [{"subsystem": "wan", "status": "ok", "wan_ip": "47.1.2.3", "gw_mac": "aa:bb:cc:00:00:00",
-          "gw_name": "UCG", "gw_version": "5.1.19", "isp_name": "Acme ISP",
+          "gw_name": "UCG", "gw_version": "5.1.19", "isp_name": "Acme ISP", "asn": 5650,
+          "isp_organization": "Acme Inc", "uptime_stats": {"WAN": {"availability": 99.9}},
           "gw_system-stats": {"cpu": "22.2", "mem": "72.2", "uptime": "90000"},
           "rx_bytes-r": 1250000, "tx_bytes-r": 250000},
          {"subsystem": "www", "status": "ok", "latency": 8, "xput_down": 930.5, "xput_up": 42.1},
          {"subsystem": "lan", "num_user": 1, "num_guest": 0, "num_iot": 3}],
         devs, cl)
+    assert hs["wan"]["availability"] == 99.9 and hs["wan"]["asn"] == 5650, hs
+    assert hs["networks"] == [{"name": "Default", "clients": 1}], hs   # cl's one client's network
     assert hs["wan"]["up"] and hs["wan"]["ip"] == "47.1.2.3" and hs["wan"]["isp"] == "Acme ISP", hs
     assert hs["wan"]["down_mbps"] == 930.5 and hs["wan"]["latency"] == 8, hs
     assert hs["throughput"]["rx_bps"] == 1250000, hs
