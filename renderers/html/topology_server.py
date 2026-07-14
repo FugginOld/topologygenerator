@@ -133,34 +133,30 @@ def gateway_speedtest() -> dict:
         return {"error": str(e)}
 
 
-def host_services(host: str) -> dict:
-    """SSH into a Linux host and enumerate its containers / stacks / services for
-    the machine dashboard. Same SSH machinery + IP validation as scan_host."""
+def _local_services() -> dict:
+    """Probe THIS (server) machine's containers/services directly — no push needed."""
     try:
-        host = str(ipaddress.ip_address(host))
-    except ValueError:
-        return {"error": "invalid host — must be an IP address"}
-    cfg = _remote_scan_cfg()
-    if not cfg.get("enabled"):
-        return {"error": "remote SSH scan is off (set remote_scan in config.yaml to enable it)"}
-    user = (cfg.get("hosts") or {}).get(host) or cfg.get("user")
-    if not user:
-        return {"error": f"no SSH user for {host} — set remote_scan.user or remote_scan.hosts['{host}']"}
-    opts = str(cfg.get("ssh_opts", "-o ConnectTimeout=8 -o BatchMode=yes")).split()
-    py = cfg.get("python", "python3")
-    script = os.path.join(ROOT, "scanners", "scan_services.py")
-    cmd = ["ssh", *opts, f"{user}@{host}", f"{shlex.quote(str(py))} -"]
-    try:
-        with open(script, encoding="utf-8") as fh:
-            r = subprocess.run(cmd, stdin=fh, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return {"error": f"ssh failed: {e}"}
-    if r.returncode != 0:
-        return {"error": (r.stderr or "ssh scan failed").strip()[-300:]}
-    try:
-        return json.loads(r.stdout)
-    except ValueError:
-        return {"error": "probe returned no JSON (is python3 on the host?)"}
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scanners", "scan_services.py")],
+                           capture_output=True, text=True, timeout=30)
+        return {**json.loads(r.stdout or "{}"), "live": True}
+    except Exception as e:
+        return {"error": f"local service probe failed: {e}"}
+
+
+def host_services(host_id: str) -> dict:
+    """Containers / compose stacks / services for a machine's dashboard. The
+    server's own machine is probed directly; a remote host serves whatever its
+    agent last reported (push model, like telemetry)."""
+    if host_id and not _is_remote(host_id):
+        return _local_services()
+    h = _host_svc.get(store.stable_slug(host_id))
+    if h and time.monotonic() - h["t"] < SVC_FRESH:
+        return {**h["data"], "live": True}
+    if h:
+        return {**h["data"], "stale": True}       # show last-known even if old
+    return {"error": "no services reported for this host yet — its agent reports "
+                     "containers/services automatically once updated (git pull or "
+                     "re-run bootstrap on that machine)."}
 
 
 def scan_host(host: str, name: str) -> dict:
@@ -264,6 +260,8 @@ from core import local_telemetry as _tele   # noqa: E402  shared local-metrics s
 _tele_cache = {"t": 0.0, "data": dict(_tele.ZERO)}
 _host_tele: dict[str, dict] = {}   # host id -> {"t": monotonic, "data": {...}}
 FRESH = 15.0                       # seconds a pushed sample stays "live"
+_host_svc: dict[str, dict] = {}    # host id -> {"t": monotonic, "data": containers/services}
+SVC_FRESH = 900.0                  # services push slowly (~5 min); 15 min stays "live"
 
 
 def telemetry_local() -> dict:
@@ -382,6 +380,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._send(400, {"error": "missing host"})
                 data = {k: b.get(k, z) for k, z in _tele.ZERO.items()}
                 _host_tele[hid] = {"t": time.monotonic(), "data": data}
+                return self._send(200, {"ok": True, "host": hid})
+            if self.path == "/api/ingest-services":
+                if INGEST_TOKEN and self.headers.get("X-Token") != INGEST_TOKEN:
+                    return self._send(403, {"error": "bad or missing token"})
+                b = self._body()
+                hid = store.stable_slug(b.get("host", ""))
+                if not hid:
+                    return self._send(400, {"error": "missing host"})
+                _host_svc[hid] = {"t": time.monotonic(),
+                                  "data": {k: b.get(k) for k in ("engine", "containers", "services")}}
                 return self._send(200, {"ok": True, "host": hid})
         except Exception as e:
             return self._send(500, {"error": str(e)})

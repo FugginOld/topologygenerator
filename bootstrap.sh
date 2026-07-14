@@ -17,7 +17,7 @@ SERVER="${TOPO_SERVER:-}"
 
 # A reporting agent needs ONLY these paths — the agent, the Linux hardware
 # scanner, and the telemetry sampler — not the whole repo/dashboard/.git.
-AGENT_PATHS="agent scanners/make_linux_topology.py core/__init__.py core/local_telemetry.py"
+AGENT_PATHS="agent scanners/make_linux_topology.py scanners/scan_services.py core/__init__.py core/local_telemetry.py"
 TOP="$(basename "${REPO%.git}")-main"   # github tarball top dir, e.g. topologygenerator-main
 MEMBERS=""; for f in $AGENT_PATHS; do MEMBERS="$MEMBERS $TOP/$f"; done
 if [ -z "$SERVER" ]; then

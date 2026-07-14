@@ -65,6 +65,24 @@ def push(server: str, topo: dict, token: str) -> dict:
     return _post(server, "/api/ingest", topo, token)
 
 
+def services_report() -> dict:
+    """Run the local container/service probe (scan_services.py); best-effort — an
+    empty result (no docker/podman) just means an empty services dashboard."""
+    try:
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scanners", "scan_services.py")],
+                           capture_output=True, text=True, timeout=30)
+        return json.loads(r.stdout) if r.stdout.strip() else {}
+    except Exception:
+        return {}
+
+
+def push_services(server: str, tid: str, token: str) -> None:
+    try:
+        _post(server, "/api/ingest-services", {"host": tid, **services_report()}, token, timeout=20)
+    except Exception as e:
+        print("services push failed:", e)
+
+
 def report(server: str, name: str, token: str, interval: float, topo_every: float) -> None:
     """Daemon: push topology, then push live telemetry every `interval` seconds,
     re-scanning the topology every `topo_every` seconds."""
@@ -79,6 +97,7 @@ def report(server: str, name: str, token: str, interval: float, topo_every: floa
     except (urllib.error.URLError, OSError) as e:
         sys.exit(f"could not reach {server}: {e}  (is topology_server.py running? firewall open on 8770?)")
     print(f"reporting '{name}' (id={tid}) to {server} every {interval}s; Ctrl-C to stop")
+    push_services(server, tid, token)               # initial container/service snapshot
     last_topo = time.monotonic()
     while True:
         try:
@@ -87,7 +106,9 @@ def report(server: str, name: str, token: str, interval: float, topo_every: floa
             print("telemetry push failed:", e)
         if time.monotonic() - last_topo >= topo_every:
             try:
-                push(server, generate(name), token); last_topo = time.monotonic()
+                push(server, generate(name), token)
+                push_services(server, tid, token)   # refresh services alongside the topology
+                last_topo = time.monotonic()
             except Exception as e:
                 print("topology re-push failed:", e)
         time.sleep(interval)
@@ -122,6 +143,8 @@ def main() -> None:
     except (urllib.error.URLError, OSError) as e:
         sys.exit(f"could not reach {args.server}: {e}")
     print(f"pushed '{topo.get('name')}' ({len(topo.get('nodes', []))} modules) -> {args.server}  {res}")
+    if isinstance(res, dict) and res.get("id"):
+        push_services(args.server, res["id"], args.token)   # also report containers/services
 
 
 if __name__ == "__main__":

@@ -324,7 +324,7 @@ function openDash(){
   document.getElementById('dashspeed').style.display=net?'':'none';   // gateway-only controls
   document.getElementById('dashopen').style.display=net?'':'none';
   loadDash();
-  if(net) dashTimer=setInterval(loadGwDash,5000);   // gateway API is cheap; the SSH probe is not (use REFRESH)
+  dashTimer=setInterval(loadDash, net?5000:15000);   // both cheap reads; machine data updates slowly
 }
 // DASHBOARD tab: ask before generating one the first time, then remember the opt-in per topology
 document.getElementById('tabDash').onclick=()=>{
@@ -432,14 +432,11 @@ function renderGwDash(d){
 }
 // machine dashboard: containers / compose stacks / running services, scanned over SSH
 async function loadSvcDash(){
-  const ip=(TOPOS.find(t=>t.id===activeId)||{}).ip;
-  if(!ip){ renderSvc({error:'this topology has no IP address to scan.'}); document.getElementById('dashupd').textContent=''; return; }
-  document.getElementById('dashupd').textContent='scanning '+ip+' over SSH…';
   try{
-    const r=await fetch('api/services?host='+encodeURIComponent(ip)+'&_='+Date.now());
+    const r=await fetch('api/services?host='+encodeURIComponent(activeId)+'&_='+Date.now());
     const d=await r.json();
     renderSvc(d);
-    document.getElementById('dashupd').textContent=d.error?'':('updated '+new Date().toLocaleTimeString());
+    document.getElementById('dashupd').textContent=d.error?'':('updated '+new Date().toLocaleTimeString()+(d.stale?' (last known)':''));
   }catch(e){ renderSvc({error:'could not reach the dashboard API.'}); document.getElementById('dashupd').textContent=''; }
 }
 function svcRow(c){
