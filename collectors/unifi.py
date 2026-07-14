@@ -326,7 +326,37 @@ class UnifiCollector(Collector):
                               self._get("stat/device"), self._get("stat/sta"))
 
 
+def _probe() -> None:
+    """Dump the fields each UniFi endpoint returns for THIS controller — a dev aid
+    for mapping API fields to the dashboard. Run: python -m collectors.unifi --probe
+    from the repo root (reads the unifi block in config.yaml)."""
+    import os
+    import yaml
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "config.yaml")
+    if not os.path.exists(path):
+        print(f"no config.yaml at {path} — run this on the dashboard server where it lives")
+        return
+    cfg = (yaml.safe_load(open(path, encoding="utf-8")) or {}).get("unifi") or {}
+    if not cfg.get("enabled"):
+        print("unifi is not enabled in config.yaml (set unifi.enabled: true)")
+        return
+    c = UnifiCollector(cfg)
+    for path in ("stat/health", "stat/sysinfo", "stat/device", "stat/sta",
+                 "rest/networkconf", "rest/wlanconf"):
+        data = c._get(path) or []
+        keys = sorted({k for o in data if isinstance(o, dict) for k in o})
+        print(f"\n### {path}  ({len(data)} objects)")
+        print(", ".join(keys) or "(no data / endpoint unavailable)")
+    print("\n### stat/health FULL (redact public IPs / MACs before sharing) ###")
+    print(json.dumps(c._get("stat/health"), indent=2)[:4000])
+
+
 if __name__ == "__main__":  # ponytail: transform self-check, no live controller
+    import sys
+    if "--probe" in sys.argv:          # live field dump for THIS controller (needs config.yaml)
+        _probe()
+        sys.exit()
     nets = [{"name": "IoT", "vlan": 50, "ip_subnet": "10.0.50.1/24", "purpose": "corporate", "enabled": True},
             {"name": "WAN", "purpose": "wan", "enabled": True}]
     z = networks_to_zones(nets, {})
