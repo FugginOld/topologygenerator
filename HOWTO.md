@@ -25,32 +25,32 @@ reporting machines is needed — only the server's port `8770` must be reachable
 Do this **once**, on the Linux host that will run the dashboard. `install.sh`
 sets up a systemd service, so it starts on boot and restarts if it dies.
 
-1. **Get the repo:**
+1. **Fetch + install (no git needed):**
    ```bash
-   git clone https://github.com/FugginOld/topologygenerator.git ~/topologygenerator
-   cd ~/topologygenerator
+   curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/update.sh | bash
+   # to require a shared token from agents:
+   #   curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/update.sh | TOPO_TOKEN=pick-a-secret bash   (see Part E)
    ```
+   `update.sh` downloads the latest source tarball to `~/topologygenerator` and
+   runs `install.sh` for you. (Prefer git? `git clone … && ./install.sh` still
+   works — the server just needs the files, not a clone.) It installs any missing
+   deps, writes + enables the service (filling in your user and paths), opens the
+   firewall where present, and **prints your dashboard URL and the `TOPO_SERVER=…`
+   line to give agents** — both use this host's own detected IP, so there's
+   nothing to hardcode.
 
-2. **Install:**
-   ```bash
-   ./install.sh
-   # to require a shared token from agents:  TOPO_TOKEN=pick-a-secret ./install.sh   (see Part E)
-   ```
-   It installs any missing deps, writes + enables the service (filling in your
-   user and paths), opens the firewall where present, and **prints your dashboard
-   URL and the `TOPO_SERVER=…` line to give agents** — both use this host's own
-   detected IP, so there's nothing to hardcode.
-
-3. **Open the dashboard** at the URL it printed (e.g. `http://192.168.1.50:8770`,
+2. **Open the dashboard** at the URL it printed (e.g. `http://192.168.1.50:8770`,
    or `http://localhost:8770` on the server itself).
    - Click **SCAN NETWORK** to map the LAN; **GENERATE** adds this server's own hardware map.
    - Other machines appear automatically once their agents report (Part B/C).
 
-**Update:** `git pull && ./install.sh`.  **Remove:** `./uninstall.sh`.
+**Update:** `./update.sh` (or re-run the one-liner).  **Remove:** `./uninstall.sh`.
 
-> Prefer to keep the dashboard on **Windows**? `.\server\server.ps1` still works (opens
-> the firewall + runs the server); make it persistent via Task Scheduler like the
-> agent in **Part D**.
+> Prefer to keep the dashboard on **Windows**? Git-free install/update in one line
+> (PowerShell): `irm https://raw.githubusercontent.com/FugginOld/topologygenerator/main/update.ps1 | iex`
+> — it fetches the operational files and starts the dashboard via `server.ps1` (opens
+> the firewall + runs the server). Set `$env:TOPO_PORT` / `$env:TOPO_TOKEN` first if
+> needed; make it persistent via Task Scheduler like the agent in **Part D**.
 
 ---
 
@@ -64,7 +64,7 @@ adapts to the host: a **systemd service** on most Linux, the boot **`go` script*
 on **Unraid**, or foreground where neither is available. Same command everywhere:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_SERVER=http://<dashboard-ip>:8770 bash
+curl -fsSL http://<dashboard-ip>:8770/bootstrap.sh | TOPO_SERVER=http://<dashboard-ip>:8770 bash
 ```
 
 - **Name the card:** prepend `TOPO_NAME=proxmox-b` (see **Naming**). Defaults to the hostname.
@@ -123,7 +123,7 @@ installed), ensures Python, and installs a persistent scheduled task that report
 at every logon — the Windows counterpart of Part B's one-liner:
 
 ```powershell
-$env:TOPO_SERVER="http://<dashboard-ip>:8770"; irm https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.ps1 | iex
+$env:TOPO_SERVER="http://<dashboard-ip>:8770"; irm http://<dashboard-ip>:8770/bootstrap.ps1 | iex
 ```
 
 - **Name the card:** set `$env:TOPO_NAME="my-pc"` before the one-liner (defaults to hostname).
@@ -251,13 +251,13 @@ The tooling now lives in subfolders (`scanners/`, `agent/`, `server/`), so paths
 baked into old systemd units / launchers changed.
 
 - **Dashboard server:** unaffected — it runs `renderers/html/topology_server.py`
-  (unchanged). Just `cd ~/topologygenerator && git pull && ./install.sh` (or
-  `sudo systemctl restart topology-server`).
+  (unchanged). Just `~/topologygenerator/update.sh` (or, if you only edited files
+  locally, `sudo systemctl restart topology-server`).
 - **Reporting machines:** the old agent unit / Unraid `go` line pointed at
   `report.sh` at the repo root, now `agent/report.sh`. **Re-run the bootstrap
   one-liner** on each machine (it regenerates the unit with the new path):
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_SERVER=http://<dashboard-ip>:8770 bash
+  curl -fsSL http://<dashboard-ip>:8770/bootstrap.sh | TOPO_SERVER=http://<dashboard-ip>:8770 bash
   ```
   New installs need nothing special.
 

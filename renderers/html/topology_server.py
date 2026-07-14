@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import http.server
+import io
 import ipaddress
 import json
 import os
@@ -24,7 +25,9 @@ import shlex
 import socket
 import subprocess
 import sys
+import tarfile
 import time
+import zipfile
 from urllib.parse import urlparse, parse_qs
 
 import store   # topology persistence (same dir) — see store.py / CONTEXT.md
@@ -34,6 +37,43 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 
 INGEST_TOKEN = os.environ.get("TOPO_TOKEN", "")   # optional shared secret for /api/ingest
+
+# The reporting agent's file set — served to fresh machines by bootstrap so they
+# fetch the client from THIS server, not github. Union of both OSes' needs: the
+# Windows scanner (make_pc_topology.py) pulls renderers/card.py; the Linux one is
+# self-contained. Extra files on the other OS are a few harmless KB.
+AGENT_PATHS = ["agent", "scanners/make_linux_topology.py", "scanners/make_pc_topology.py",
+               "scanners/scan_services.py", "core/__init__.py", "core/local_telemetry.py",
+               "renderers/__init__.py", "renderers/card.py"]
+
+
+def _agent_files():
+    """(arcname, abspath) for every real file under AGENT_PATHS, __pycache__ skipped."""
+    for rel in AGENT_PATHS:
+        p = os.path.join(ROOT, rel)
+        if os.path.isdir(p):
+            for dirpath, dirs, files in os.walk(p):
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                for f in files:
+                    ap = os.path.join(dirpath, f)
+                    yield os.path.relpath(ap, ROOT).replace("\\", "/"), ap
+        elif os.path.isfile(p):
+            yield rel, p
+
+
+def agent_bundle(fmt: str) -> bytes:
+    """The agent file set as a tar.gz ('tar') or zip. No top-level dir prefix, so
+    the client extracts straight into its install dir (no --strip-components)."""
+    buf = io.BytesIO()
+    if fmt == "zip":
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for arc, ap in _agent_files():
+                z.write(ap, arc)
+    else:
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            for arc, ap in _agent_files():
+                tar.add(ap, arcname=arc)
+    return buf.getvalue()
 
 _server_ip_cache: str | None = None
 
@@ -314,7 +354,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n) or b"{}")
 
+    def _send_bytes(self, ctype: str, body: bytes) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
+        # agent client + its installer, served from this server (not github) so a
+        # fresh machine bootstraps entirely from the dashboard it reports to.
+        if self.path == "/agent.tar.gz":
+            return self._send_bytes("application/gzip", agent_bundle("tar"))
+        if self.path == "/agent.zip":
+            return self._send_bytes("application/zip", agent_bundle("zip"))
+        if self.path in ("/bootstrap.sh", "/bootstrap.ps1"):
+            try:
+                with open(os.path.join(ROOT, self.path.lstrip("/")), "rb") as fh:
+                    return self._send_bytes("text/plain; charset=utf-8", fh.read())
+            except OSError:
+                return self._send(404, {"error": "not found"})
         if self.path.split("?")[0] == "/api/list":
             return self._send(200, list_rows())
         if self.path.split("?")[0] == "/api/telemetry":

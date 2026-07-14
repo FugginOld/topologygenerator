@@ -6,24 +6,20 @@
 # TOPO_SERVER is required — the dashboard prints its URL when you run ./install.sh,
 # and the dashboard's right-click "Generate machine topology" fills this in for you.
 #
-#   curl -fsSL https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh | TOPO_SERVER=http://DASHBOARD-IP:8770 bash
+#   curl -fsSL http://DASHBOARD-IP:8770/bootstrap.sh | TOPO_SERVER=http://DASHBOARD-IP:8770 bash
 #   # one-time snapshot (laptop/PC), no persistent service:
-#   curl -fsSL ...bootstrap.sh | TOPO_SERVER=http://DASHBOARD-IP:8770 TOPO_ONCE=1 bash
+#   curl -fsSL http://DASHBOARD-IP:8770/bootstrap.sh | TOPO_SERVER=http://DASHBOARD-IP:8770 TOPO_ONCE=1 bash
 set -euo pipefail
 
-REPO="${TOPO_REPO:-https://github.com/FugginOld/topologygenerator.git}"
-TARURL="${REPO%.git}/archive/refs/heads/main.tar.gz"
 SERVER="${TOPO_SERVER:-}"
-
-# A reporting agent needs ONLY these paths — the agent, the Linux hardware
-# scanner, and the telemetry sampler — not the whole repo/dashboard/.git.
-AGENT_PATHS="agent scanners/make_linux_topology.py scanners/scan_services.py core/__init__.py core/local_telemetry.py"
-TOP="$(basename "${REPO%.git}")-main"   # github tarball top dir, e.g. topologygenerator-main
-MEMBERS=""; for f in $AGENT_PATHS; do MEMBERS="$MEMBERS $TOP/$f"; done
 if [ -z "$SERVER" ]; then
   echo "error: set TOPO_SERVER=http://<dashboard-ip>:8770 (the dashboard prints its URL on ./install.sh)" >&2
   exit 1
 fi
+# The dashboard server hosts the agent file set (agent + scanners + telemetry
+# sampler) — fetch it from there, not github, so a machine bootstraps only from
+# the dashboard it reports to. Re-running bootstrap re-fetches to update.
+TARURL="${SERVER%/}/agent.tar.gz"
 
 # Unraid runs its OS from RAM, so anything under / is wiped on reboot — clone to
 # the array (appdata) instead, and persist via the boot 'go' script (no systemd).
@@ -63,12 +59,11 @@ if [ -n "$need" ]; then
   fi
 fi
 
-# Fetch just the agent files (selective tarball extract — no git, no dashboard).
-# Re-running bootstrap re-fetches to update.
-echo "fetching agent files -> $DIR"
+# Fetch the agent files from the dashboard server (no git, no github).
+echo "fetching agent files from $SERVER -> $DIR"
 mkdir -p "$DIR"
 if have curl; then curl -fsSL "$TARURL"; else wget -qO- "$TARURL"; fi \
-  | tar xz -C "$DIR" --strip-components=1 $MEMBERS
+  | tar xz -C "$DIR"
 
 chmod +x "$DIR/agent/report.sh"
 
@@ -87,10 +82,10 @@ if [ "$IS_UNRAID" = true ]; then
   cat > "$LAUNCHER" <<EOF
 #!/bin/bash
 # topology reporting agent launcher — persisted on the Unraid flash by bootstrap
-DIR="$DIR"; SERVER="$SERVER"; TARURL="$TARURL"; MEMBERS="$MEMBERS"
+DIR="$DIR"; SERVER="$SERVER"; TARURL="$TARURL"
 for i in \$(seq 1 60); do [ -d "\$(dirname "\$DIR")" ] && break; sleep 5; done  # wait ~5m for array
-if [ ! -f "\$DIR/agent/report.sh" ]; then          # re-fetch just the agent files (git-free)
-  mkdir -p "\$DIR"; curl -fsSL "\$TARURL" | tar xz -C "\$DIR" --strip-components=1 \$MEMBERS
+if [ ! -f "\$DIR/agent/report.sh" ]; then          # re-fetch the agent files from the server (git-free)
+  mkdir -p "\$DIR"; curl -fsSL "\$TARURL" | tar xz -C "\$DIR"
 fi
 exec bash "\$DIR/agent/report.sh" "\$SERVER"
 EOF

@@ -793,7 +793,7 @@ async function scanHost(name,ip){
   // be localhost, which is meaningless on the remote machine we're telling to report).
   const port=location.port||'8770';
   const srv=data.server_ip?`http://${data.server_ip}:${port}`:location.origin;
-  const B='https://raw.githubusercontent.com/FugginOld/topologygenerator/main/bootstrap.sh';
+  const B=srv+'/bootstrap.sh';   // served by this dashboard, not github
   const persistent=`curl -fsSL ${B} | TOPO_SERVER=${srv} bash`;
   const snapshot  =`curl -fsSL ${B} | TOPO_SERVER=${srv} TOPO_ONCE=1 bash`;
   const lbl=t=>`<div style="margin-top:14px;font-size:8.5px;letter-spacing:.14em;color:var(--hud-dim)">${t}</div>`;

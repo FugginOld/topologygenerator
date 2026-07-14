@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install the topology dashboard server as a systemd service on THIS Linux host.
-# Idempotent — re-run after a `git pull` to update. Remove with ./uninstall.sh.
+# Idempotent — re-run (or ./update.sh, which fetches the latest first) to update.
+# Remove with ./uninstall.sh.
 #
 #   ./install.sh
 #   TOPO_TOKEN=secret ./install.sh     # require a shared token from agents
@@ -69,5 +70,5 @@ echo "✓ topology-server running (starts on boot)."
 echo "  dashboard:      http://${IP:-localhost}:8770"
 echo "  point agents:   TOPO_SERVER=http://${IP:-<this-host-ip>}:8770"
 echo "  logs:           journalctl -u topology-server -f"
-echo "  update:         git pull && ./install.sh"
+echo "  update:         ./update.sh"
 echo "  remove:         ./uninstall.sh"
