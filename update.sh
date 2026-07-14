@@ -14,7 +14,13 @@ set -euo pipefail
 
 REPO="${TOPO_REPO:-https://github.com/FugginOld/topographer}"
 TARURL="${REPO%.git}/archive/refs/heads/main.tar.gz"
-DIR="${TOPO_DIR:-$HOME/topographer}"
+
+# Unraid runs its OS from RAM, so $HOME is wiped on reboot — fetch to the array
+# (appdata) instead. install.sh persists via the boot 'go' script (no systemd).
+if [ -f /etc/unraid-version ] && [ -z "${TOPO_DIR:-}" ]; then
+  [ -d /mnt/user ] && DIR=/mnt/user/appdata/topographer || DIR=/boot/config/topographer
+fi
+DIR="${TOPO_DIR:-${DIR:-$HOME/topographer}}"
 
 # Extract only the files needed to RUN the server + serve the client — skip the
 # dev-only tree (tests, CI). out/ and config.yaml are gitignored so they're not

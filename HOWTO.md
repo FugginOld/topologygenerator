@@ -39,6 +39,11 @@ sets up a systemd service, so it starts on boot and restarts if it dies.
    line to give agents** — both use this host's own detected IP, so there's
    nothing to hardcode.
 
+   > **Unraid:** the same one-liner works. Unraid has no systemd, so it fetches to
+   > `/mnt/user/appdata/topographer` and persists the server via a flash launcher +
+   > the boot `go` script instead (needs `python3`; no NerdTools/pip). Log:
+   > `tail -f /var/log/topo-server.log`.
+
 2. **Open the dashboard** at the URL it printed (e.g. `http://192.168.1.50:8770`,
    or `http://localhost:8770` on the server itself).
    - Click **SCAN NETWORK** to map the LAN; **GENERATE** adds this server's own hardware map.
