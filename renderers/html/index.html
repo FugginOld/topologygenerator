@@ -240,6 +240,9 @@
 const svg=document.getElementById('svg');
 const NS='http://www.w3.org/2000/svg';
 const el=(t,a,x)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e;};
+// HTML-escape untrusted text before it goes into any innerHTML template (host-supplied
+// device names, server error strings). Prefer textContent/hel where practical.
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // colors come from the active skin's CSS vars — refreshed on theme switch so
 // the SVG (which can't use var()) always matches the CSS-driven chrome.
 const CLS={}, COL={};
@@ -285,8 +288,11 @@ function renderList(){
     const d=document.createElement('div');
     d.className='item'+(t.id===activeId?' active':'');
     const when=(t.generated||'').replace('T',' ').slice(0,16);
-    const ip=t.ip?`<div class="ip">${t.ip}</div>`:'';
-    d.innerHTML=`<button class="del" title="delete">×</button><div class="nm">${t.name||t.id}</div>${ip}<div class="mt">${t.modules||0} modules · ${when}</div>`;
+    const del=hel('button','del'); del.title='delete'; del.textContent='×';
+    d.appendChild(del);
+    d.appendChild(hel('div','nm',t.name||t.id));            // host-supplied name -> textContent
+    if(t.ip) d.appendChild(hel('div','ip',t.ip));
+    d.appendChild(hel('div','mt',(t.modules||0)+' modules · '+when));
     d.onclick=e=>{ if(e.target.classList.contains('del'))return; selectTopo(t.id); };
     d.querySelector('.del').onclick=e=>{e.stopPropagation();delTopo(t);};
     list.appendChild(d);
@@ -303,11 +309,11 @@ async function selectTopo(id){
     if(!r.ok) throw new Error('HTTP '+r.status);
     TOPO=await r.json();
     document.getElementById('err').style.display='none';
-    document.getElementById('title').innerHTML=spaced(TOPO.name||'TOPOGRAPHER');
+    document.getElementById('title').textContent=spaced(TOPO.name||'TOPOGRAPHER');
     document.getElementById('subtitle').textContent=(TOPO.nodes||[]).length+' modules · PCIe fabric · simulated telemetry';
     laidOut=false; layout(); fit();
     setView('topology'); viewtabs.style.display='flex';   // reset to Topology on every switch
-  }catch(e){ showErr('could not load '+id+'.json ('+e.message+')'); }
+  }catch(e){ showErr('could not load '+esc(id)+'.json ('+esc(e.message)+')'); }
 }
 async function delTopo(t){
   if(!confirm(`Delete "${t.name||t.id}"?`))return;
@@ -324,7 +330,7 @@ document.getElementById('addbtn').onclick=async e=>{
     const data=await r.json();
     if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
     activeId=data.id; await loadList();
-  }catch(err){ showErr('generate failed:<br><br><code>'+err.message+'</code>'); }
+  }catch(err){ showErr('generate failed:<br><br><code>'+esc(err.message)+'</code>'); }
   finally{ btn.disabled=false; btn.textContent='+ Generate Current Machine'; }
 };
 document.getElementById('netbtn').onclick=async e=>{
@@ -336,8 +342,8 @@ document.getElementById('netbtn').onclick=async e=>{
     const data=await r.json();
     if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
     activeId=data.id; await loadList(); selectTopo(data.id);
-    if(data.hint) showNotice('Gateway detected', `<div>${data.hint}</div>`);
-  }catch(err){ showErr('network scan failed:<br><br><code>'+err.message+'</code>'); }
+    if(data.hint) showNotice('Gateway detected', `<div>${esc(data.hint)}</div>`);
+  }catch(err){ showErr('network scan failed:<br><br><code>'+esc(err.message)+'</code>'); }
   finally{ btn.disabled=false; btn.textContent='⊹ Scan Network'; }
 };
 function spaced(s){return (s||'').toUpperCase().split('').join(' ');}
@@ -397,10 +403,10 @@ document.getElementById('dashspeed').onclick=async()=>{
     const done=(w.lastrun||0)>baseline || ((w.down_mbps||0)>0 && (w.speedtest_status||'')!=='Running' && baseline===0);
     if(done){
       clearInterval(t); btn.disabled=false;
-      if(open()) showNotice('WAN Speedtest',`<div style="line-height:2">Download <b>${w.down_mbps} Mbps</b><br>Upload <b>${w.up_mbps} Mbps</b><br>Ping <b>${w.ping} ms</b></div>`);
+      if(open()) showNotice('WAN Speedtest',`<div style="line-height:2">Download <b>${esc(w.down_mbps)} Mbps</b><br>Upload <b>${esc(w.up_mbps)} Mbps</b><br>Ping <b>${esc(w.ping)} ms</b></div>`);
       return;
     }
-    if(open()) showNotice('WAN Speedtest',`<div>Running… <span style="color:var(--hud-dim)">(${w.speedtest_status||'contacting gateway'})</span></div>`);
+    if(open()) showNotice('WAN Speedtest',`<div>Running… <span style="color:var(--hud-dim)">(${esc(w.speedtest_status||'contacting gateway')})</span></div>`);
     if(++n>=18){ clearInterval(t); btn.disabled=false;
       if(open()) showNotice('WAN Speedtest','<div>No result after ~90s — your gateway may not accept API-triggered speedtests. Run one from the UniFi app and the tile will pick it up.</div>');
     }
@@ -969,7 +975,7 @@ function watchForHost(name,ip){
 notice.querySelector('.nc-x').onclick=hideNotice;
 notice.addEventListener('click',e=>{ if(e.target===notice&&!notice.classList.contains('busy'))hideNotice(); });
 async function scanHost(name,ip){
-  showNotice('Scanning '+name,`Contacting <b>${ip}</b> over SSH — this can take a few seconds…`,true);
+  showNotice('Scanning '+name,`Contacting <b>${esc(ip)}</b> over SSH — this can take a few seconds…`,true);
   let data={};
   try{
     const r=await fetch('api/scan-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:ip,name})});
@@ -989,13 +995,13 @@ async function scanHost(name,ip){
   const lbl=t=>`<div style="margin-top:14px;font-size:8.5px;letter-spacing:.14em;color:var(--hud-dim)">${t}</div>`;
   // only surface the server message when an SSH scan was actually attempted and
   // failed — when remote_scan is simply off, the manual add is the normal flow
-  const why=(data.ssh_tried&&data.error)?` <span style="opacity:.6">(SSH scan failed: ${data.error})</span>`:'';
+  const why=(data.ssh_tried&&data.error)?` <span style="opacity:.6">(SSH scan failed: ${esc(data.error)})</span>`:'';
   showNotice("Add "+name,
-    `<div><b style="color:var(--hud)">${name}</b> isn't reporting yet. Run the one for its OS:</div>`
-    +lbl('LINUX · ALWAYS-ON · PERSISTENT SERVICE')+`<div class="nc-cmd">${persistent}</div>`
-    +lbl('LINUX · LAPTOP / PC · ONE-TIME SNAPSHOT')+`<div class="nc-cmd">${snapshot}</div>`
-    +lbl('WINDOWS · POWERSHELL (PERSISTENT TASK)')+`<div class="nc-cmd">${winCmd}</div>`
-    +`<div style="margin-top:14px;color:var(--hud-dim)">Waiting for <b style="color:var(--hud)">${name}</b> to report — this opens its map automatically.${why}</div>`);
+    `<div><b style="color:var(--hud)">${esc(name)}</b> isn't reporting yet. Run the one for its OS:</div>`
+    +lbl('LINUX · ALWAYS-ON · PERSISTENT SERVICE')+`<div class="nc-cmd">${esc(persistent)}</div>`
+    +lbl('LINUX · LAPTOP / PC · ONE-TIME SNAPSHOT')+`<div class="nc-cmd">${esc(snapshot)}</div>`
+    +lbl('WINDOWS · POWERSHELL (PERSISTENT TASK)')+`<div class="nc-cmd">${esc(winCmd)}</div>`
+    +`<div style="margin-top:14px;color:var(--hud-dim)">Waiting for <b style="color:var(--hud)">${esc(name)}</b> to report — this opens its map automatically.${why}</div>`);
   watchForHost(name,ip);   // auto-advance when the machine starts reporting
 }
 stage.addEventListener('contextmenu',e=>{
@@ -1008,7 +1014,7 @@ stage.addEventListener('contextmenu',e=>{
   if(!ip||['zone','wan','root','firewall'].includes(n.kind)) return;  // hosts only
   e.preventDefault();
   const existing=findMachine(n.label,ip);
-  ctx.innerHTML=`<div class="ch">${(n.label||ip).toUpperCase()}</div>`;
+  ctx.innerHTML=''; ctx.appendChild(hel('div','ch',(n.label||ip).toUpperCase()));   // node label untrusted -> textContent
   const add=(label,fn)=>{const d=document.createElement('div');d.className='ci';d.textContent=label;d.onclick=()=>{hideCtx();fn();};ctx.appendChild(d);};
   if(existing) add('Open hardware report',()=>selectTopo(existing.id));
   add(existing?'Re-scan over SSH':'Generate machine topology',()=>scanHost(n.label,ip));
