@@ -38,11 +38,27 @@ def parse_ps(out: str, engine: str) -> list:
     return rows
 
 
+def parse_stats(out: str) -> dict:
+    """`docker/podman stats --no-stream` tab output -> {name: {cpu, mem}}.
+    Only running containers appear; mem keeps just the used side of 'used / limit'."""
+    s = {}
+    for line in out.splitlines():
+        p = line.split("\t")
+        if len(p) >= 3 and p[0]:
+            s[p[0]] = {"cpu": p[1].strip(), "mem": p[2].split(" / ")[0].strip()}
+    return s
+
+
 def containers() -> tuple:
     engine = "docker" if shutil.which("docker") else ("podman" if shutil.which("podman") else None)
     if not engine:
         return None, []
-    return engine, parse_ps(_run([engine, "ps", "-a", "--format", _FMT]), engine)
+    cons = parse_ps(_run([engine, "ps", "-a", "--format", _FMT]), engine)
+    stats = parse_stats(_run([engine, "stats", "--no-stream", "--format",
+                              '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}']))
+    for c in cons:
+        c.update(stats.get(c["name"], {}))     # running containers gain cpu/mem
+    return engine, cons
 
 
 def services() -> list:
@@ -71,6 +87,8 @@ if __name__ == "__main__":
         r = parse_ps(sample, "docker")
         assert len(r) == 3 and r[0]["name"] == "web" and r[0]["project"] == "mystack", r
         assert r[1]["state"] == "exited" and r[2]["project"] == "", r
+        st = parse_stats("web\t3.20%\t1.2GiB / 15.6GiB\ndb\t0.00%\t20MiB / 15.6GiB\n")
+        assert st["web"] == {"cpu": "3.20%", "mem": "1.2GiB"}, st
         print("scan_services self-check ok")
         sys.exit()
     main()
