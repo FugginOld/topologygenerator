@@ -797,17 +797,21 @@ async function scanHost(name,ip){
   // be localhost, which is meaningless on the remote machine we're telling to report).
   const port=location.port||'8770';
   const srv=data.server_ip?`http://${data.server_ip}:${port}`:location.origin;
-  const B=srv+'/bootstrap.sh';   // served by this dashboard, not github
+  // a passive network scan can't reliably tell the host's OS, so offer both and
+  // let the user pick — bootstrap.{sh,ps1} are both served by this dashboard.
+  const B=srv+'/bootstrap.sh', Bps=srv+'/bootstrap.ps1';
   const persistent=`curl -fsSL ${B} | TOPO_SERVER=${srv} bash`;
   const snapshot  =`curl -fsSL ${B} | TOPO_SERVER=${srv} TOPO_ONCE=1 bash`;
+  const winCmd    =`$env:TOPO_SERVER="${srv}"; irm ${Bps} | iex`;
   const lbl=t=>`<div style="margin-top:14px;font-size:8.5px;letter-spacing:.14em;color:var(--hud-dim)">${t}</div>`;
   // only surface the server message when an SSH scan was actually attempted and
   // failed — when remote_scan is simply off, the manual add is the normal flow
   const why=(data.ssh_tried&&data.error)?` <span style="opacity:.6">(SSH scan failed: ${data.error})</span>`:'';
   showNotice("Add "+name,
-    `<div><b style="color:var(--hud)">${name}</b> isn't reporting yet. Run one of these on it:</div>`
-    +lbl('ALWAYS-ON DEVICE · PERSISTENT SERVICE')+`<div class="nc-cmd">${persistent}</div>`
-    +lbl('LAPTOP / PC · ONE-TIME SNAPSHOT')+`<div class="nc-cmd">${snapshot}</div>`
+    `<div><b style="color:var(--hud)">${name}</b> isn't reporting yet. Run the one for its OS:</div>`
+    +lbl('LINUX · ALWAYS-ON · PERSISTENT SERVICE')+`<div class="nc-cmd">${persistent}</div>`
+    +lbl('LINUX · LAPTOP / PC · ONE-TIME SNAPSHOT')+`<div class="nc-cmd">${snapshot}</div>`
+    +lbl('WINDOWS · POWERSHELL (PERSISTENT TASK)')+`<div class="nc-cmd">${winCmd}</div>`
     +`<div style="margin-top:14px;color:var(--hud-dim)">Waiting for <b style="color:var(--hud)">${name}</b> to report — this opens its map automatically.${why}</div>`);
   watchForHost(name,ip);   // auto-advance when the machine starts reporting
 }
