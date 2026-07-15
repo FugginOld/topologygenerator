@@ -51,6 +51,11 @@ extracted `<script>` block.
    hard-refresh, no restart. Only Python changes need `systemctl restart topo-server`.
 6. **The dashboard's SVG builder uses `textContent`, never `innerHTML`,** for scanned or host-supplied
    strings — device labels are untrusted. Keep it that way.
+7. **Not every server host has systemd** — rule #5's `systemctl restart topo-server` only applies on a
+   systemd Linux box. The production dashboard runs on **Unraid** (Slackware, no systemd), where you
+   restart the process itself: kill it (`ps aux | grep '[t]opo_server'` → `kill <pid>`) and relaunch it
+   the way it's started there (Docker container `docker restart <name>`, or its User Scripts entry).
+   Never tell the user to `systemctl` on the Unraid host.
 
 ## Conventions
 
