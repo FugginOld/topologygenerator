@@ -31,7 +31,8 @@ import time
 import zipfile
 from urllib.parse import urlparse, parse_qs
 
-import store   # topology persistence (same dir) — see store.py / CONTEXT.md
+import store          # topology persistence (same dir) — see store.py / CONTEXT.md
+import widget_store    # per-host widget instances (same dir) — see widget_store.py
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -390,6 +391,7 @@ def generate_network(subnet: str | None = None) -> dict:
 sys.path.insert(0, ROOT)    # repo root — where core/ and the scanners live
 from core import local_telemetry as _tele   # noqa: E402  shared local-metrics sampler
 from core import glances                     # noqa: E402  Glances reader (also used by the agent)
+from widgets import registry as wreg         # noqa: E402  widget Type catalog + fetchers
 
 _tele_cache = {"t": 0.0, "data": dict(_tele.ZERO)}
 _host_tele: dict[str, dict] = {}   # host id -> {"t": monotonic, "data": {...}}
@@ -425,6 +427,53 @@ def host_telemetry(tid: str) -> dict:
     if not _is_remote(tid):
         return {**telemetry_local(), "live": True}
     return {**_tele.ZERO, "stale": True}
+
+
+# ── Widget Store: per-host service widgets. Config (incl. secrets) lives in
+# widget_store (gitignored out/); the server does every outbound API call and
+# masks secret fields on the way out, so keys never reach the browser. ──────────
+_widget_cache: dict[str, dict] = {}   # "host|id" -> {"t": monotonic, "data": stats}
+WIDGET_FRESH = 20.0                   # seconds a fetched sample is reused
+
+
+def _widget_public(w: dict) -> dict:
+    """A stored widget with secret config fields blanked for the browser (a
+    parallel 'secret_set' flags which ones actually have a value stored)."""
+    secrets = set(wreg.secret_fields(w.get("type", "")))
+    cfg = w.get("config", {})
+    return {"id": w["id"], "type": w["type"], "position": w.get("position", 0),
+            "config": {k: ("" if k in secrets else v) for k, v in cfg.items()},
+            "secret_set": {k: bool(cfg.get(k)) for k in secrets}}
+
+
+def widgets_list(host: str) -> list[dict]:
+    """This host's widgets: masked config + short-cached live data."""
+    if not host:
+        return []
+    out = []
+    for w in widget_store.list_for(host):
+        key = f"{host}|{w['id']}"
+        c = _widget_cache.get(key)
+        if not (c and time.monotonic() - c["t"] < WIDGET_FRESH):
+            c = {"t": time.monotonic(), "data": wreg.fetch(w.get("type", ""), w.get("config", {}))}
+            _widget_cache[key] = c
+        out.append({**_widget_public(w), "data": c["data"]})
+    return out
+
+
+def _clean_config(wtype: str, config: dict, prev: dict | None = None) -> dict:
+    """Whitelist to the Type's known fields; a blank/absent secret preserves the
+    prior stored value (so the browser never has to echo a key back to keep it)."""
+    secrets, prev = set(wreg.secret_fields(wtype)), (prev or {})
+    out = {}
+    for k in wreg.field_names(wtype):
+        v = (config or {}).get(k)
+        if k in secrets and not v:
+            if prev.get(k):
+                out[k] = prev[k]
+        elif v is not None:
+            out[k] = v
+    return out
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -491,6 +540,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self._send(200, glances_stats(host))
             except Exception as e:
                 return self._send(200, {"error": str(e)})
+        if self.path.split("?")[0] == "/api/widget-catalog":
+            return self._send(200, wreg.catalog_public())
+        if self.path.split("?")[0] == "/api/widgets":
+            host = store.stable_slug(parse_qs(urlparse(self.path).query).get("host", [""])[0])
+            return self._send(200, widgets_list(host))
         if self.path.startswith("/t/"):
             tid = os.path.basename(self.path.split("?")[0])[:-5]  # strip .json
             try:
@@ -564,6 +618,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 data = {k: v for k, v in b.items() if k != "host"}   # the compact metrics dict
                 _host_gl[hid] = {"t": time.monotonic(), "data": data}
                 return self._send(200, {"ok": True, "host": hid})
+            if self.path == "/api/widget-add":
+                b = self._body()
+                host, wtype = store.stable_slug(b.get("host", "")), b.get("type", "")
+                if not host or not wreg.get(wtype):
+                    return self._send(400, {"error": "missing host or unknown widget type"})
+                cfg = _clean_config(wtype, b.get("config", {}))
+                return self._send(200, _widget_public(widget_store.add(host, wtype, cfg)))
+            if self.path == "/api/widget-update":
+                b = self._body()
+                host, wid = store.stable_slug(b.get("host", "")), b.get("id", "")
+                cur = next((w for w in widget_store.list_for(host) if w["id"] == wid), None)
+                if not cur:
+                    return self._send(404, {"error": "no such widget"})
+                cfg = _clean_config(cur["type"], b.get("config", {}), cur.get("config"))
+                _widget_cache.pop(f"{host}|{wid}", None)          # re-fetch with the new config
+                return self._send(200, _widget_public(widget_store.update(host, wid, cfg)))
+            if self.path == "/api/widget-delete":
+                b = self._body()
+                host, wid = store.stable_slug(b.get("host", "")), b.get("id", "")
+                widget_store.delete(host, wid)
+                _widget_cache.pop(f"{host}|{wid}", None)
+                return self._send(200, {"ok": True})
+            if self.path == "/api/widget-reorder":
+                b = self._body()
+                widget_store.reorder(store.stable_slug(b.get("host", "")), b.get("order") or [])
+                return self._send(200, {"ok": True})
         except Exception as e:
             return self._send(500, {"error": str(e)})
         return self._send(404, {"error": "unknown route"})
