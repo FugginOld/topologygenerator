@@ -275,22 +275,91 @@ def _gl_get(base: str, ver, path: str):
         return json.loads(r.read())
 
 
+def _gb(b):
+    return round(b / 1073741824, 1) if isinstance(b, (int, float)) else None
+
+
+def _rate(d: dict, rate_key: str, delta_key: str) -> float:
+    """bytes/sec: prefer Glances' *_rate_per_sec, else delta-over-interval."""
+    r = d.get(rate_key)
+    if isinstance(r, (int, float)):
+        return float(r)
+    delta, dt = d.get(delta_key), d.get("time_since_update")
+    if isinstance(delta, (int, float)) and isinstance(dt, (int, float)) and dt > 0:
+        return delta / dt
+    return 0.0
+
+
+def _gl_mem(d):
+    return {"percent": round(d.get("percent", 0)), "total_gb": _gb(d.get("total")),
+            "used_gb": _gb(d.get("used")), "free_gb": _gb(d.get("free"))}
+
+
+def _gl_system(d):
+    return {"hostname": d.get("hostname", ""), "distro": d.get("linux_distro") or d.get("os_name", ""),
+            "kernel": d.get("os_version", "")}
+
+
+def _gl_net(nets):
+    """busiest up interface -> {iface, tx_bps, rx_bps}, skipping loopback/virtual."""
+    best, score = None, -1.0
+    for n in nets or []:
+        name = n.get("interface_name", "")
+        if not n.get("is_up", True) or name == "lo" or name.startswith(("veth", "br-", "docker")):
+            continue
+        tx, rx = _rate(n, "bytes_sent_rate_per_sec", "tx"), _rate(n, "bytes_recv_rate_per_sec", "rx")
+        if tx + rx >= score:
+            best, score = {"iface": name, "tx_bps": tx, "rx_bps": rx}, tx + rx
+    return best
+
+
+def _gl_disk(disks):
+    rd = wr = 0.0
+    for d in disks or []:
+        rd += _rate(d, "read_bytes_rate_per_sec", "read_bytes")
+        wr += _rate(d, "write_bytes_rate_per_sec", "write_bytes")
+    return {"read_bps": rd, "write_bps": wr}
+
+
+def _gl_sensor(sensors):
+    """CPU temp with warn/crit thresholds; prefer a package/cpu/core label, else hottest."""
+    cands = [s for s in sensors or []
+             if str(s.get("unit", "")).upper() == "C" and isinstance(s.get("value"), (int, float))]
+    if not cands:
+        return None
+    pref = [s for s in cands if re.search(r"package|cpu|tctl|core|coretemp", str(s.get("label", "")), re.I)]
+    s = max(pref or cands, key=lambda x: x["value"])
+    return {"value": round(s["value"]), "warn": s.get("warning"), "crit": s.get("critical")}
+
+
+def _gl_procs(plist):
+    """top 5 processes by CPU -> [{name, cpu, mem_mb}]."""
+    def cpu(p): return p.get("cpu_percent") or 0
+    out = []
+    for p in sorted(plist or [], key=cpu, reverse=True)[:5]:
+        nm = p.get("name") or ((p.get("cmdline") or [""])[0])
+        mi = p.get("memory_info")
+        rss = mi.get("rss") if isinstance(mi, dict) else (mi[0] if isinstance(mi, (list, tuple)) and mi else None)
+        out.append({"name": str(nm)[:24], "cpu": round(cpu(p), 1),
+                    "mem_mb": round(rss / 1048576) if isinstance(rss, (int, float)) else None})
+    return out
+
+
 def _glances_fetch(base: str, ver) -> dict:
     try:
         ql = _gl_get(base, ver, "quicklook")             # cpu/mem/swap % in one call
     except Exception:
         return {}                                        # unreachable or wrong API version
-    out = {"cpu": round(ql.get("cpu", 0)), "mem": round(ql.get("mem", 0)),
-           "swap": round(ql.get("swap", 0)), "cpu_name": ql.get("cpu_name", "")}
-    try:    out["load"] = _gl_get(base, ver, "load").get("min1")
-    except Exception: pass
-    try:    out["uptime"] = _gl_get(base, ver, "uptime")            # v4 returns "N days, h:m:s"
-    except Exception: pass
-    try:                                                           # hottest °C sensor
-        temps = [s.get("value") for s in _gl_get(base, ver, "sensors")
-                 if str(s.get("unit", "")).upper() == "C" and isinstance(s.get("value"), (int, float))]
-        if temps: out["temp"] = round(max(temps))
-    except Exception: pass
+    out = {"cpu": round(ql.get("cpu", 0)), "cpu_name": ql.get("cpu_name", "")}
+    for key, path, fn in (("mem", "mem", _gl_mem), ("system", "system", _gl_system),
+                          ("net", "network", _gl_net), ("diskio", "diskio", _gl_disk),
+                          ("temp", "sensors", _gl_sensor), ("procs", "processlist", _gl_procs)):
+        try:
+            v = fn(_gl_get(base, ver, path))
+            if v is not None:
+                out[key] = v
+        except Exception:
+            pass                                         # optional section; skip on miss
     return out
 
 
