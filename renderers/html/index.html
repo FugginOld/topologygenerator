@@ -166,6 +166,8 @@
   .gt-proc.head{margin-bottom:2px}
   .gt-proc.head .pn{font-size:12px;font-weight:600}
   .gt-proc.head .pc,.gt-proc.head .pm{font-size:9px;letter-spacing:.08em;opacity:.7}
+  .gwrap .gtile{cursor:grab}
+  .gwrap .gtile.dragging{opacity:.45;cursor:grabbing}
   .svc-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#45c46b;box-shadow:0 0 8px rgba(69,196,107,.6)}
   .svc.down .svc-dot{background:var(--crit);box-shadow:none}
   .svc-group{grid-column:1/-1;display:flex;justify-content:space-between;align-items:baseline;font-size:9px;letter-spacing:.16em;
@@ -342,7 +344,7 @@ function spaced(s){return (s||'').toUpperCase().split('').join(' ');}
 
 // ================= VIEW: topology <-> native gateway dashboard =================
 const viewtabs=document.getElementById('viewtabs'), mainEl=document.getElementById('main');
-let viewMode='topology', dashTimer=null;
+let viewMode='topology', dashTimer=null, glTimer=null;
 const loadOptIn=()=>{ try{return JSON.parse(localStorage.getItem('dashOptIn')||'{}');}catch(e){return {};} };
 let dashOptIn=loadOptIn();
 const saveOptIn=()=>{ try{localStorage.setItem('dashOptIn',JSON.stringify(dashOptIn));}catch(e){} };
@@ -358,18 +360,19 @@ function setView(mode){
   mainEl.classList.toggle('dashview',mode==='dashboard');
   document.getElementById('tabTopo').classList.toggle('active',mode==='topology');
   document.getElementById('tabDash').classList.toggle('active',mode==='dashboard');
-  if(mode!=='dashboard'){ clearInterval(dashTimer); dashTimer=null; }   // stop polling when hidden
+  if(mode!=='dashboard'){ clearInterval(dashTimer); dashTimer=null; clearInterval(glTimer); glTimer=null; }   // stop polling when hidden
 }
 function isNetwork(){ const t=TOPOS.find(x=>x.id===activeId); return (t&&t.kind==='network')||activeId==='network'; }
 function loadDash(){ return isNetwork()?loadGwDash():loadSvcDash(); }
 function openDash(){
-  setView('dashboard'); clearInterval(dashTimer); dashTimer=null;
+  setView('dashboard'); clearInterval(dashTimer); dashTimer=null; clearInterval(glTimer); glTimer=null;
   const net=isNetwork();
   document.getElementById('dashtitle').textContent=net?'GATEWAY DASHBOARD':'SERVICES & CONTAINERS';
   document.getElementById('dashspeed').style.display=net?'':'none';   // gateway-only controls
   document.getElementById('dashopen').style.display=net?'':'none';
   loadDash();
-  dashTimer=setInterval(loadDash, net?5000:15000);   // both cheap reads; machine data updates slowly
+  dashTimer=setInterval(loadDash, net?5000:15000);   // containers/services update slowly
+  if(!net){ loadGlances(); glTimer=setInterval(loadGlances, 4000); }   // Glances panel refreshes faster for live sparklines
 }
 // DASHBOARD tab: ask before generating one the first time, then remember the opt-in per topology
 document.getElementById('tabDash').onclick=()=>{
@@ -380,7 +383,7 @@ document.getElementById('tabDash').onclick=()=>{
   });
 };
 document.getElementById('tabTopo').onclick=()=>setView('topology');
-document.getElementById('dashrefresh').onclick=loadDash;
+document.getElementById('dashrefresh').onclick=()=>{ loadDash(); if(!isNetwork()) loadGlances(); };
 document.getElementById('dashopen').onclick=()=>{ const u=gatewayUrl(); if(u) window.open(u,'_blank','noopener'); else alert('No gateway address known for this topology.'); };
 document.getElementById('dashspeed').onclick=async()=>{
   const btn=document.getElementById('dashspeed'); btn.disabled=true;
@@ -478,23 +481,55 @@ function renderGwDash(d){
 // machine dashboard: containers / compose stacks / running services, scanned over SSH
 async function loadSvcDash(){
   try{
-    const q='host='+encodeURIComponent(activeId)+'&_='+Date.now();
-    const [sr,gr]=await Promise.all([fetch('api/services?'+q),fetch('api/glances?'+q)]);
-    const d=await sr.json();
-    let g={}; try{ g=await gr.json(); }catch(e){}     // Glances is optional
-    if(g&&g.cpu!=null){                               // record sparkline history (survives re-render)
-      pushH('cpu',g.cpu);
+    const r=await fetch('api/services?host='+encodeURIComponent(activeId)+'&_='+Date.now());
+    const d=await r.json();
+    renderSvc(d);
+    document.getElementById('dashupd').textContent=d.error?'':('updated '+new Date().toLocaleTimeString()+(d.stale?' (last known)':''));
+  }catch(e){ renderSvc({error:'could not reach the dashboard API.'}); document.getElementById('dashupd').textContent=''; }
+}
+// Glances panel polls on its own faster timer so the sparklines feel live
+async function loadGlances(){
+  if(viewMode!=='dashboard'||isNetwork()) return;
+  try{
+    const r=await fetch('api/glances?host='+encodeURIComponent(activeId)+'&_='+Date.now());
+    const g=await r.json();
+    if(g&&g.cpu!=null){
+      pushH('cpu',g.cpu); pushH('mem',g.mem?g.mem.percent:null);
       pushH('net',g.net?(g.net.tx_bps+g.net.rx_bps):0);
       pushH('temp',g.temp?g.temp.value:null);
       pushH('disk',g.diskio?((g.diskio.read_bps||0)+(g.diskio.write_bps||0)):0);
     }
-    renderSvc(d,g);
-    document.getElementById('dashupd').textContent=d.error?'':('updated '+new Date().toLocaleTimeString()+(d.stale?' (last known)':''));
-  }catch(e){ renderSvc({error:'could not reach the dashboard API.'}); document.getElementById('dashupd').textContent=''; }
+    setGlances(g);
+  }catch(e){}
+}
+function setGlances(g){
+  if(glDragging) return;                               // don't rebuild the tiles mid-drag
+  const p=document.getElementById('dashpanel'); if(!p) return;
+  const gp=document.getElementById('glpanel');
+  if(!(g&&g.cpu!=null)){ if(gp)gp.remove(); return; }
+  const w=glancesWidget(g); w.id='glpanel';
+  gp ? p.replaceChild(w,gp) : p.insertBefore(w,p.firstChild);
 }
 // ---- Glances system panel: 6 tiles (CPU / Memory / Network / Top Procs / Temp / Disk) ----
-const glHist={cpu:[],net:[],temp:[],disk:[]}, HCAP=40;
+const glHist={cpu:[],mem:[],net:[],temp:[],disk:[]}, HCAP=40;
 function pushH(k,v){ if(v==null||isNaN(v))return; const a=glHist[k]; a.push(v); if(a.length>HCAP)a.shift(); }
+// tile order is user-draggable and persisted; unknown/new keys append in default order
+const GLDEF=['cpu','mem','net','proc','temp','disk'];
+let glOrder=(()=>{ try{ const o=JSON.parse(localStorage.getItem('glOrder')||'null');
+    return Array.isArray(o)? o.filter(k=>GLDEF.includes(k)).concat(GLDEF.filter(k=>!o.includes(k))) : GLDEF.slice();
+  }catch(e){ return GLDEF.slice(); } })();
+const saveGlOrder=()=>{ try{ localStorage.setItem('glOrder',JSON.stringify(glOrder)); }catch(e){} };
+let glDragging=false;
+function attachGlDrag(wrap){
+  let src=null;
+  wrap.querySelectorAll('.gtile').forEach(t=>{
+    t.addEventListener('dragstart',e=>{ src=t; glDragging=true; t.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
+    t.addEventListener('dragend',()=>{ glDragging=false; t.classList.remove('dragging'); });
+    t.addEventListener('dragover',e=>{ e.preventDefault(); const tgt=e.currentTarget; if(!src||src===tgt)return;
+      const r=tgt.getBoundingClientRect(); wrap.insertBefore(src,(e.clientX-r.left)>r.width/2?tgt.nextSibling:tgt); });
+    t.addEventListener('drop',e=>{ e.preventDefault(); glOrder=[...wrap.querySelectorAll('.gtile')].map(x=>x.dataset.gk); saveGlOrder(); });
+  });
+}
 let _sgid=0;
 function spark(vals){
   const W=100,H=40,n=vals.length, g=el('svg',{class:'spark',viewBox:`0 0 ${W} ${H}`,preserveAspectRatio:'none'});
@@ -522,23 +557,23 @@ function gtile(title,sparkKey){
 }
 function gfoot(leftEl,rightTxt){ const f=hel('div','gt-foot'); f.appendChild(leftEl); f.appendChild(hel('span','gt-big',rightTxt)); return f; }
 function glancesWidget(g){
-  const wrap=hel('div','gwrap');
+  const T={};
   // CPU
   {const {tile,body}=gtile('CPU Usage','cpu'), s=g.system||{};
    if(s.distro) body.appendChild(hel('div','gt-line',s.distro));
    if(s.kernel) body.appendChild(hel('div','gt-line',s.kernel));
    body.appendChild(gfoot(hel('span','gt-line strong',s.hostname||g.cpu_name||''),(g.cpu!=null?g.cpu:'?')+'% Used'));
-   wrap.appendChild(tile);}
-  // Memory
-  {const {tile,body}=gtile('Memory Usage',null), m=g.mem||{};
+   T.cpu=tile;}
+  // Memory (sparkline from mem % history)
+  {const {tile,body}=gtile('Memory Usage','mem'), m=g.mem||{};
    body.appendChild(hel('div','gt-line',gbTxt(m.free_gb)+' GB Free'));
    body.appendChild(gfoot(hel('span','gt-line',gbTxt(m.total_gb)+' GB Total'),gbTxt(m.used_gb)+' GB Used'));
-   wrap.appendChild(tile);}
+   T.mem=tile;}
   // Network
   {const {tile,body}=gtile('Network Usage','net'), n=g.net;
    body.appendChild(hel('div','gt-line',n?n.iface:'—'));
    body.appendChild(gfoot(hel('span','gt-line strong',n?fmtBits(n.tx_bps)+' TX':''),n?fmtBits(n.rx_bps)+' RX':''));
-   wrap.appendChild(tile);}
+   T.net=tile;}
   // Top Processes
   {const tile=hel('div','gtile'), head=hel('div','gt-proc head');
    head.appendChild(hel('span','pn','Top Processes')); head.appendChild(hel('span','pc','CPU')); head.appendChild(hel('span','pm','MEM'));
@@ -546,17 +581,20 @@ function glancesWidget(g){
    (g.procs||[]).forEach(p=>{ const r=hel('div','gt-proc');
      r.appendChild(hel('span','pn',p.name)); r.appendChild(hel('span','pc',(p.cpu!=null?p.cpu:0)+'%'));
      r.appendChild(hel('span','pm',p.mem_mb!=null?p.mem_mb+' MB':'—')); tile.appendChild(r); });
-   wrap.appendChild(tile);}
+   T.proc=tile;}
   // CPU Temp
   {const {tile,body}=gtile('CPU Temp','temp'), tp=g.temp;
    if(tp&&tp.warn!=null) body.appendChild(hel('div','gt-line',tp.warn+'C Warn'));
    body.appendChild(gfoot(hel('span','gt-line',tp&&tp.crit!=null?tp.crit+' C Crit':''),tp?tp.value+' C':'—'));
-   wrap.appendChild(tile);}
+   T.temp=tile;}
   // Disk I/O
   {const {tile,body}=gtile('Disk I/O','disk'), dk=g.diskio||{};
    body.appendChild(hel('div','gt-line',fmtBytes(dk.read_bps)+' Read'));
    body.appendChild(gfoot(hel('span','gt-line',fmtBytes(dk.write_bps)+' Write'),fmtBytes((dk.read_bps||0)+(dk.write_bps||0))));
-   wrap.appendChild(tile);}
+   T.disk=tile;}
+  const wrap=hel('div','gwrap');
+  glOrder.forEach(k=>{ const t=T[k]; if(t){ t.dataset.gk=k; t.setAttribute('draggable','true'); wrap.appendChild(t); }});
+  attachGlDrag(wrap);
   return wrap;
 }
 // derive a Homepage-style tile from one container
@@ -595,9 +633,9 @@ function svcTile(c,hip){
   const dot=hel('span','svc-dot'); dot.title=c.status||c.state||''; el.appendChild(dot);
   return el;
 }
-function renderSvc(d,glances){
-  const p=document.getElementById('dashpanel'); p.innerHTML='';
-  if(glances&&glances.cpu!=null) p.appendChild(glancesWidget(glances));   // system panel on top when configured
+function renderSvc(d){
+  const p=document.getElementById('dashpanel');
+  [...p.children].forEach(c=>{ if(c.id!=='glpanel') c.remove(); });   // rebuild tiles, keep the live Glances panel
   if(d.error){ const e=hel('div','dcard wide'); e.appendChild(hel('div','dl','No dashboard')); e.appendChild(hel('div','du',d.error)); p.appendChild(e); return; }
   const cons=d.containers||[], svcs=d.services||[];
   if(!cons.length && !svcs.length){
