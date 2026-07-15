@@ -470,18 +470,26 @@ async function loadSvcDash(){
 const shortImg=img=>img?((img.split('/').pop()||img).split(':')[0]):'';
 const pubPort=ports=>{ const m=(ports||'').match(/:(\d+)->/); return m?m[1]:''; };   // first published host port
 const mono=name=>((name||'?').replace(/[^a-z0-9]/gi,'').slice(0,2)||'?');
-// real app icon = the service's own favicon (no CDN, no bundle); monogram on failure
+// resolve an Unraid webui template (http://[IP]:[PORT:8096]) → a real URL
+function webuiUrl(webui,hip,port){
+  if(webui){ const u=webui.replace(/\[IP\]/gi,hip||location.hostname).replace(/\[PORT:(\d+)\]/gi,'$1');
+    if(/^https?:\/\//i.test(u)) return u; }
+  return (hip&&port)?`http://${hip}:${port}`:null;
+}
+// icon sources tried in order: Unraid icon label → service favicon → monogram badge
 function svcIcon(c,hip,port,down){
-  const badge=hel('div','svc-ico',mono(c.name));
-  if(down||!hip||!port) return badge;
+  const badge=hel('div','svc-ico',mono(c.name)), srcs=[];
+  if(c.icon) srcs.push(c.icon);                                 // Unraid net.unraid.docker.icon
+  if(!down&&hip&&port) srcs.push(`http://${hip}:${port}/favicon.ico`);
+  if(!srcs.length) return badge;
   const img=document.createElement('img'); img.className='svc-ico'; img.alt=''; img.loading='lazy';
-  img.src=`http://${hip}:${port}/favicon.ico`;
-  img.onerror=()=>img.replaceWith(badge);                       // fall back to the monogram
+  let i=0; img.src=srcs[0];
+  img.onerror=()=>{ i++; i<srcs.length ? img.src=srcs[i] : img.replaceWith(badge); };
   return img;
 }
 function svcTile(c,hip){
   const down=c.state&&c.state!=='running', port=pubPort(c.ports);
-  const href=(!down&&hip&&port)?`http://${hip}:${port}`:null;   // link to the service when reachable
+  const href=down?null:webuiUrl(c.webui,hip,port);              // link to the service when reachable
   const el=hel(href?'a':'div','svc'+(down?' down':''));
   if(href){ el.href=href; el.target='_blank'; el.rel='noopener'; }
   el.appendChild(svcIcon(c,hip,port,down));

@@ -13,9 +13,11 @@ import shutil
 import subprocess
 import sys
 
-# tab-separated so names/images/status parse cleanly; .Label extracts the compose project
+# tab-separated so names/images/status parse cleanly; .Label extracts the compose
+# project and (on Unraid) the container's icon URL + Web UI template
 _FMT = ('{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}'
-        '\t{{.Label "com.docker.compose.project"}}\t{{.Ports}}')
+        '\t{{.Label "com.docker.compose.project"}}\t{{.Ports}}'
+        '\t{{.Label "net.unraid.docker.icon"}}\t{{.Label "net.unraid.docker.webui"}}')
 
 
 def _run(cmd: list) -> str:
@@ -34,7 +36,10 @@ def parse_ps(out: str, engine: str) -> list:
             continue
         rows.append({"name": p[0], "image": p[1], "state": p[2], "status": p[3],
                      "project": p[4] if len(p) > 4 else "",
-                     "ports": p[5] if len(p) > 5 else "", "engine": engine})
+                     "ports": p[5] if len(p) > 5 else "",
+                     "icon": p[6] if len(p) > 6 else "",       # Unraid: net.unraid.docker.icon
+                     "webui": p[7] if len(p) > 7 else "",      # Unraid: net.unraid.docker.webui
+                     "engine": engine})
     return rows
 
 
@@ -81,12 +86,14 @@ def main() -> None:
 
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
-        sample = ("web\tnginx:latest\trunning\tUp 2 hours\tmystack\t0.0.0.0:80->80/tcp\n"
+        sample = ("web\tnginx:latest\trunning\tUp 2 hours\tmystack\t0.0.0.0:80->80/tcp"
+                  "\thttp://icon.png\thttp://[IP]:[PORT:80]\n"
                   "db\tpostgres:16\texited\tExited (0) 1h ago\tmystack\t\n"
                   "stray\tredis\trunning\tUp 5m\t\t6379/tcp\n")
         r = parse_ps(sample, "docker")
         assert len(r) == 3 and r[0]["name"] == "web" and r[0]["project"] == "mystack", r
-        assert r[1]["state"] == "exited" and r[2]["project"] == "", r
+        assert r[0]["icon"] == "http://icon.png" and r[0]["webui"] == "http://[IP]:[PORT:80]", r
+        assert r[1]["state"] == "exited" and r[2]["project"] == "" and r[2]["icon"] == "", r
         st = parse_stats("web\t3.20%\t1.2GiB / 15.6GiB\ndb\t0.00%\t20MiB / 15.6GiB\n")
         assert st["web"] == {"cpu": "3.20%", "mem": "1.2GiB"}, st
         print("scan_services self-check ok")
