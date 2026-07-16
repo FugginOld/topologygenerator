@@ -8,24 +8,11 @@ decides layout.
 from __future__ import annotations
 
 import json
-import ssl
 import urllib.parse
-import urllib.request
 
-_TLS = ssl.create_default_context()          # homelab services are often self-signed
-_TLS.check_hostname = False
-_TLS.verify_mode = ssl.CERT_NONE
+from . import net
 
-
-def _get_json(url, headers=None, data=None, method=None, timeout=8):
-    """GET/POST -> parsed JSON, or None on any failure. Never raises. Unverified
-    TLS (the context is ignored for plain http)."""
-    try:
-        req = urllib.request.Request(url, headers=headers or {}, data=data, method=method)
-        with urllib.request.urlopen(req, timeout=timeout, context=_TLS) as r:
-            return json.load(r)
-    except Exception:
-        return None
+_get_json = net.get_json     # SSRF-guarded (private targets only) + unverified TLS; None on failure
 
 
 def _num(x) -> float:
@@ -73,46 +60,25 @@ def _v5_stats(d: dict) -> dict:
 def _pihole_v6(base: str, token: str) -> dict:
     """Pi-hole v6 REST API: POST /api/auth -> SID, GET /api/stats/summary, then
     release the session (v6 caps concurrent sessions, so we must log out)."""
-    api, sid = base + "/api", None
-    try:
-        body = json.dumps({"password": token or ""}).encode()
-        req = urllib.request.Request(api + "/auth", data=body,
-                                     headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=8) as r:
-            sess = (json.load(r) or {}).get("session") or {}
-        if sess.get("valid"):
-            sid = sess.get("sid")
-    except Exception:
-        pass                                             # unprotected instance -> try unauthenticated
+    api = base + "/api"
+    body = json.dumps({"password": token or ""}).encode()
+    sess = _get_json(api + "/auth", headers={"Content-Type": "application/json"}, data=body, method="POST")
+    sess = (sess or {}).get("session") or {}
+    sid = sess.get("sid") if sess.get("valid") else None   # unprotected -> None, try unauthenticated
     hdr = {"X-FTL-SID": sid} if sid else {}
     try:
-        with urllib.request.urlopen(urllib.request.Request(api + "/stats/summary", headers=hdr), timeout=8) as r:
-            summary = json.load(r)
-        blocking = None
-        try:
-            with urllib.request.urlopen(urllib.request.Request(api + "/dns/blocking", headers=hdr), timeout=6) as r:
-                blocking = json.load(r)
-        except Exception:
-            pass
-        return _v6_stats(summary, blocking)
-    except Exception:
-        return {}
+        summary = _get_json(api + "/stats/summary", headers=hdr)
+        if summary is None:
+            return {}
+        return _v6_stats(summary, _get_json(api + "/dns/blocking", headers=hdr))
     finally:
-        if sid:                                          # log out so we don't leak sessions each poll
-            try:
-                urllib.request.urlopen(urllib.request.Request(
-                    api + "/auth", headers={"X-FTL-SID": sid}, method="DELETE"), timeout=5)
-            except Exception:
-                pass
+        if sid:                                            # log out so we don't leak sessions each poll
+            _get_json(api + "/auth", headers={"X-FTL-SID": sid}, method="DELETE", timeout=5)
 
 
 def _pihole_v5(base: str, token: str) -> dict:
     q = urllib.parse.urlencode({"summaryRaw": "", "auth": token or ""})
-    try:
-        with urllib.request.urlopen(f"{base}/admin/api.php?{q}", timeout=8) as r:
-            return _v5_stats(json.load(r))
-    except Exception:
-        return {}
+    return _v5_stats(_get_json(f"{base}/admin/api.php?{q}"))
 
 
 def pihole(cfg: dict) -> dict:

@@ -23,23 +23,9 @@ show ops:  none -> value at path · "len" -> list/dict length ·
 from __future__ import annotations
 
 import base64
-import json
-import ssl
 import urllib.parse
-import urllib.request
 
-_TLS = ssl.create_default_context()
-_TLS.check_hostname = False
-_TLS.verify_mode = ssl.CERT_NONE
-
-
-def _get(url, headers, timeout=8):
-    try:
-        req = urllib.request.Request(url, headers=headers or {})
-        with urllib.request.urlopen(req, timeout=timeout, context=_TLS) as r:
-            return json.load(r)
-    except Exception:
-        return None
+from . import net
 
 
 def form_fields(defn: dict) -> list[dict]:
@@ -55,6 +41,7 @@ def form_fields(defn: dict) -> list[dict]:
     elif auth == "basic":
         fields.append({"name": "username", "label": "Username", "type": "text"})
         fields.append({"name": "password", "label": "Password", "type": "password", "secret": True})
+    fields.append({"name": "verify_tls", "label": "Verify TLS", "type": "bool"})
     return fields
 
 
@@ -136,7 +123,8 @@ def fetch(defn: dict, cfg: dict) -> dict:
     if not base:
         return {}
     headers, q = _auth(defn, cfg)
-    calls = {name: _get(_fmt_url(base, path, cfg, q), headers)
+    verify = bool(cfg.get("verify_tls"))
+    calls = {name: net.get_json(_fmt_url(base, path, cfg, q), headers=headers, verify=verify)
              for name, path in (defn.get("calls") or {}).items()}
     out = {}
     for f in defn.get("show") or []:
@@ -174,18 +162,18 @@ if __name__ == "__main__":   # ponytail: pure logic + a stubbed end-to-end fetch
     h, q = _auth({"auth": "basic"}, {"username": "u", "password": "p"})
     assert h["Authorization"].startswith("Basic ")
     assert _fmt_url("http://h", "/e/{env}/x", {"env": "2"}, [("apikey", "K")]) == "http://h/e/2/x?apikey=K"
-    assert [f["name"] for f in form_fields({"auth": "basic"})] == ["url", "username", "password"]
+    assert [f["name"] for f in form_fields({"auth": "basic"})] == ["url", "username", "password", "verify_tls"]
 
     # stub the HTTP layer and drive a full fetch (sonarr-shaped)
     _stub = {"series": [1, 2, 3], "queue": {"totalRecords": 2}, "missing": {"totalRecords": 5}}
-    _orig = _get
-    _get = lambda url, headers, timeout=8: _stub[url.split("/")[-1].split("?")[0]]   # noqa: E731
+    _orig = net.get_json
+    net.get_json = lambda url, headers=None, verify=False, **k: _stub[url.split("/")[-1].split("?")[0]]   # noqa: E731
     d = {"auth": "apikey-query", "param": "apikey",
          "calls": {"series": "/series", "queue": "/queue", "missing": "/missing"},
          "show": [{"key": "series", "call": "series", "op": "len"},
                   {"key": "queue", "call": "queue", "path": "totalRecords"},
                   {"key": "missing", "call": "missing", "path": "totalRecords"}]}
     assert fetch(d, {"url": "http://h", "key": "K"}) == {"series": 3, "queue": 2, "missing": 5}
-    _get = _orig
+    net.get_json = _orig
     assert fetch(d, {"url": ""}) == {}
     print("widgets/engine self-check ok")

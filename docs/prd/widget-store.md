@@ -120,8 +120,11 @@ self-check (the barrier is the reason to isolate it — same as `store.py`).
 ## Open questions
 
 1. ~~Write-endpoint auth~~ — decided: no new auth (trusted-LAN model).
-2. **SSRF** — allowlist widget target URLs to private ranges, or leave open for a
-   LAN tool?
+2. ~~SSRF~~ — resolved: `widgets/net.py` only fetches private / loopback / link-local
+   targets (a hostname must resolve entirely to private addrs, blocking DNS
+   rebinding). Engine + media/pi-hole fetchers route through it; a `verify_tls`
+   opt-in enables cert validation per widget. Collectors (proxmox/unifi) keep their
+   own config-gated `verify_tls` and are a separate, admin-controlled path.
 3. **Icons** — bundle a small local icon set, or extend `/icon` to serve them?
    (No external CDN allowed.)
 4. **Placement** — v1 is machine dashboards; do we later want a global board?
