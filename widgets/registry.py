@@ -53,22 +53,12 @@ CATALOG = [
         ],
         "fetch": fetchers.unifi,
     },
-    # ── media stack: url + API key each (Settings -> General/Security in the app) ──
-    {
-        "id": "sonarr", "label": "Sonarr", "category": "Media", "icon": "sonarr",
-        "desc": "Series, queue, missing episodes.", "fields": _ARR_FIELDS, "fetch": fetchers.sonarr,
-    },
-    {
-        "id": "radarr", "label": "Radarr", "category": "Media", "icon": "radarr",
-        "desc": "Movies, queue, missing.", "fields": _ARR_FIELDS, "fetch": fetchers.radarr,
-    },
+    # ── media stack: url + API key each (Settings -> General/Security in the app).
+    # sonarr/radarr/bazarr/seerr are engine-driven now (widgets/definitions.py); only
+    # the ones needing non-engine logic (aggregation / coercion) stay hand-coded here.
     {
         "id": "prowlarr", "label": "Prowlarr", "category": "Downloads", "icon": "prowlarr",
         "desc": "Indexers, grabs, queries.", "fields": _ARR_FIELDS, "fetch": fetchers.prowlarr,
-    },
-    {
-        "id": "bazarr", "label": "Bazarr", "category": "Media", "icon": "bazarr",
-        "desc": "Missing subtitles (episodes + movies).", "fields": _ARR_FIELDS, "fetch": fetchers.bazarr,
     },
     {
         "id": "sabnzbd", "label": "SABnzbd", "category": "Downloads", "icon": "sabnzbd",
@@ -77,10 +67,6 @@ CATALOG = [
     {
         "id": "tautulli", "label": "Tautulli", "category": "Media", "icon": "tautulli",
         "desc": "Active Plex streams + bandwidth.", "fields": _ARR_FIELDS, "fetch": fetchers.tautulli,
-    },
-    {
-        "id": "seerr", "label": "Seerr / Overseerr", "category": "Media", "icon": "overseerr",
-        "desc": "Pending / approved / available requests.", "fields": _ARR_FIELDS, "fetch": fetchers.seerr,
     },
 ]
 

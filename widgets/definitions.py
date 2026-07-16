@@ -80,6 +80,54 @@ DEFS = [
             {"key": "inbox", "call": "stats", "path": "documents_inbox"},
         ],
     },
+    # ── media stack (Servarr + friends): url + API key, all pure engine shape.
+    # beta=False — these are proven (were hand-fetchers), not built-from-spec.
+    {
+        "id": "sonarr", "label": "Sonarr", "category": "Media", "icon": "sonarr", "beta": False,
+        "desc": "Series, queue, missing episodes.",
+        "auth": "apikey-header",   # X-Api-Key
+        "calls": {"series": "/api/v3/series", "queue": "/api/v3/queue?page=1&pageSize=1",
+                  "missing": "/api/v3/wanted/missing?page=1&pageSize=1"},
+        "show": [
+            {"key": "series", "call": "series", "op": "len"},
+            {"key": "queue", "call": "queue", "path": "totalRecords"},
+            {"key": "missing", "call": "missing", "path": "totalRecords"},
+        ],
+    },
+    {
+        "id": "radarr", "label": "Radarr", "category": "Media", "icon": "radarr", "beta": False,
+        "desc": "Movies, queue, missing.",
+        "auth": "apikey-header",
+        "calls": {"movie": "/api/v3/movie", "queue": "/api/v3/queue?page=1&pageSize=1",
+                  "missing": "/api/v3/wanted/missing?page=1&pageSize=1"},
+        "show": [
+            {"key": "movies", "call": "movie", "op": "len"},
+            {"key": "queue", "call": "queue", "path": "totalRecords"},
+            {"key": "missing", "call": "missing", "path": "totalRecords"},
+        ],
+    },
+    {
+        "id": "bazarr", "label": "Bazarr", "category": "Media", "icon": "bazarr", "beta": False,
+        "desc": "Missing subtitles (episodes + movies).",
+        "auth": "apikey-header", "header": "X-API-KEY",
+        "calls": {"ep": "/api/episodes/wanted?length=1", "mv": "/api/movies/wanted?length=1"},
+        "show": [
+            {"key": "missing_episodes", "call": "ep", "path": "total"},
+            {"key": "missing_movies", "call": "mv", "path": "total"},
+        ],
+    },
+    {
+        "id": "seerr", "label": "Seerr / Overseerr", "category": "Media", "icon": "overseerr", "beta": False,
+        "desc": "Pending / approved / available requests.",
+        "auth": "apikey-header",
+        "calls": {"count": "/api/v1/request/count"},
+        "show": [
+            {"key": "pending", "call": "count", "path": "pending"},
+            {"key": "approved", "call": "count", "path": "approved"},
+            {"key": "available", "call": "count", "path": "available"},
+            {"key": "total", "call": "count", "path": "total"},
+        ],
+    },
 ]
 
 

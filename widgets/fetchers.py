@@ -133,33 +133,9 @@ def unifi(cfg: dict) -> dict:
 
 
 # ── media stack (Servarr + friends): each returns a compact stats dict ────────
-def _arr_counts(base, key, list_path):
-    """Shared Servarr shape: item count from list_path, plus queue + wanted totals."""
-    items = _get_json(f"{base}{list_path}", {"X-Api-Key": key})
-    if items is None:
-        return None
-    q = _get_json(f"{base}/api/v3/queue?page=1&pageSize=1", {"X-Api-Key": key}) or {}
-    miss = _get_json(f"{base}/api/v3/wanted/missing?page=1&pageSize=1", {"X-Api-Key": key}) or {}
-    return (len(items) if isinstance(items, list) else None,
-            q.get("totalRecords"), miss.get("totalRecords"))
-
-
-def sonarr(cfg: dict) -> dict:
-    base = (cfg.get("url") or "").rstrip("/")
-    if not base:
-        return {}
-    c = _arr_counts(base, cfg.get("key", ""), "/api/v3/series")
-    return {} if c is None else {"series": c[0], "queue": c[1], "missing": c[2]}
-
-
-def radarr(cfg: dict) -> dict:
-    base = (cfg.get("url") or "").rstrip("/")
-    if not base:
-        return {}
-    c = _arr_counts(base, cfg.get("key", ""), "/api/v3/movie")
-    return {} if c is None else {"movies": c[0], "queue": c[1], "missing": c[2]}
-
-
+# sonarr/radarr/bazarr/seerr are pure engine shape -> widgets/definitions.py DEFS.
+# What stays here needs logic the engine can't express: prowlarr (sum across
+# indexers), sabnzbd (string->number coercion), tautulli (nested + scale).
 def prowlarr(cfg: dict) -> dict:
     base, key = (cfg.get("url") or "").rstrip("/"), cfg.get("key", "")
     if not base:
@@ -207,28 +183,6 @@ def tautulli(cfg: dict) -> dict:
         "transcodes": int(_num(data.get("stream_count_transcode"))),
         "bandwidth_mbps": round(_num(data.get("total_bandwidth")) / 1000, 1),
     }
-
-
-def bazarr(cfg: dict) -> dict:
-    base, key = (cfg.get("url") or "").rstrip("/"), cfg.get("key", "")
-    if not base:
-        return {}
-    ep = _get_json(f"{base}/api/episodes/wanted?length=1", {"X-API-KEY": key})
-    if ep is None:
-        return {}
-    mv = _get_json(f"{base}/api/movies/wanted?length=1", {"X-API-KEY": key}) or {}
-    return {"missing_episodes": ep.get("total"), "missing_movies": mv.get("total")}
-
-
-def seerr(cfg: dict) -> dict:
-    base, key = (cfg.get("url") or "").rstrip("/"), cfg.get("key", "")
-    if not base:
-        return {}
-    c = _get_json(f"{base}/api/v1/request/count", {"X-Api-Key": key})
-    if not isinstance(c, dict):
-        return {}
-    return {"pending": c.get("pending"), "approved": c.get("approved"),
-            "available": c.get("available"), "total": c.get("total")}
 
 
 if __name__ == "__main__":   # ponytail: pure response->stats mapping, offline
