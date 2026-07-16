@@ -11,10 +11,10 @@ from . import fetchers
 CATALOG = [
     {
         "id": "pihole", "label": "Pi-hole", "category": "Network", "icon": "pihole",
-        "desc": "DNS queries + ads blocked today.",
+        "desc": "DNS queries + blocked (Pi-hole v5 and v6).",
         "fields": [
             {"name": "url", "label": "Pi-hole URL", "type": "url", "required": True},
-            {"name": "token", "label": "API token", "type": "password", "secret": True},
+            {"name": "token", "label": "App password (v6) / API token (v5)", "type": "password", "secret": True},
         ],
         "fetch": fetchers.pihole,
     },
