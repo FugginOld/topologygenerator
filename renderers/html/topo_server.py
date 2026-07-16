@@ -17,20 +17,18 @@ from __future__ import annotations
 
 import argparse
 import http.server
-import io
 import ipaddress
 import json
 import os
-import re
 import shlex
 import socket
 import subprocess
 import sys
-import tarfile
 import time
-import zipfile
 from urllib.parse import urlparse, parse_qs
 
+import agent_bundle   # agent tar.gz/zip builder (same dir) — see agent_bundle.py
+import icons          # service-icon CDN cache (same dir) — see icons.py
 import store          # topology persistence (same dir) — see store.py / CONTEXT.md
 import widget_store    # per-host widget instances (same dir) — see widget_store.py
 from pushcache import PushCache   # per-host push-freshness cache (same dir)
@@ -40,44 +38,6 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 
 INGEST_TOKEN = os.environ.get("TOPO_TOKEN", "")   # optional shared secret for /api/ingest
-
-# The reporting agent's file set — served to fresh machines by bootstrap so they
-# fetch the client from THIS server, not github. Union of both OSes' needs: the
-# Windows scanner (make_pc_topo.py) pulls renderers/card.py; the Linux one is
-# self-contained. Extra files on the other OS are a few harmless KB.
-AGENT_PATHS = ["agent", "scanners/make_linux_topo.py", "scanners/make_pc_topo.py",
-               "scanners/scan_services.py", "core/__init__.py", "core/local_telemetry.py",
-               "core/glances.py",
-               "renderers/__init__.py", "renderers/card.py"]
-
-
-def _agent_files():
-    """(arcname, abspath) for every real file under AGENT_PATHS, __pycache__ skipped."""
-    for rel in AGENT_PATHS:
-        p = os.path.join(ROOT, rel)
-        if os.path.isdir(p):
-            for dirpath, dirs, files in os.walk(p):
-                dirs[:] = [d for d in dirs if d != "__pycache__"]
-                for f in files:
-                    ap = os.path.join(dirpath, f)
-                    yield os.path.relpath(ap, ROOT).replace("\\", "/"), ap
-        elif os.path.isfile(p):
-            yield rel, p
-
-
-def agent_bundle(fmt: str) -> bytes:
-    """The agent file set as a tar.gz ('tar') or zip. No top-level dir prefix, so
-    the client extracts straight into its install dir (no --strip-components)."""
-    buf = io.BytesIO()
-    if fmt == "zip":
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            for arc, ap in _agent_files():
-                z.write(ap, arc)
-    else:
-        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-            for arc, ap in _agent_files():
-                tar.add(ap, arcname=arc)
-    return buf.getvalue()
 
 _server_ip_cache: str | None = None
 
@@ -197,68 +157,6 @@ def host_services(host_id: str) -> dict:
         "error": "no services reported for this host yet — its agent reports "
                  "containers/services automatically once updated (git pull or "
                  "re-run bootstrap on that machine)."}
-
-
-# ── service icons: match a container to a dashboard-icons logo, fetched once from
-# the CDN and cached to disk so the dashboard serves it locally (offline-warm).
-ICON_DIR = os.path.join(ROOT, "out", "icons")        # gitignored cache
-ICON_CDN = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons"
-_ICON_FMTS = (("svg", "image/svg+xml"), ("png", "image/png"), ("webp", "image/webp"))
-_VENDORS = {"binhex", "linuxserver", "lscr", "ghcr", "hotio", "ls"}   # prefixes to drop
-
-
-def _slug(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", (s or "").lower()).strip("-")
-
-
-def _icon_slugs(name: str, image: str) -> list:
-    """dashboard-icons slug candidates from a container name / image, best first."""
-    out = []
-    img_base = _slug((image or "").split("/")[-1].split(":")[0])   # jellyfin <- lscr.io/.../jellyfin:latest
-    for s in (_slug(name), img_base):
-        if not s:
-            continue
-        parts = s.split("-")
-        out.append(s)
-        if len(parts) > 1 and parts[0] in _VENDORS:
-            out.append("-".join(parts[1:]))          # binhex-plex -> plex
-        out.append(parts[-1])                        # last token as a final guess
-    seen, uniq = set(), []
-    for s in out:
-        if s and s not in seen:
-            seen.add(s); uniq.append(s)
-    return uniq
-
-
-def icon_bytes(name: str, image: str):
-    """(content_type, bytes) for a service icon, cached on disk; None if unavailable.
-    A '.miss' marker negative-caches unknowns so we don't re-hit the CDN each render."""
-    import urllib.request
-    os.makedirs(ICON_DIR, exist_ok=True)
-    key = _slug(name) or _slug(image) or "x"
-    for ext, ctype in _ICON_FMTS + (("miss", ""),):
-        p = os.path.join(ICON_DIR, f"{key}.{ext}")
-        if os.path.exists(p):
-            if ext == "miss":
-                return None
-            with open(p, "rb") as fh:
-                return ctype, fh.read()
-    for slug in _icon_slugs(name, image):
-        for ext, ctype in _ICON_FMTS:
-            try:
-                with urllib.request.urlopen(f"{ICON_CDN}/{ext}/{slug}.{ext}", timeout=4) as r:
-                    if r.status == 200:
-                        data = r.read()
-                        with open(os.path.join(ICON_DIR, f"{key}.{ext}"), "wb") as fh:
-                            fh.write(data)
-                        return ctype, data
-            except Exception:
-                continue                             # 404 / offline -> try next candidate
-    try:
-        open(os.path.join(ICON_DIR, f"{key}.miss"), "wb").close()   # ponytail: permanent until out/icons cleared
-    except OSError:
-        pass
-    return None
 
 
 # ── Glances widget: a compact system-metrics tile grid. The dashboard's own
@@ -511,9 +409,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # agent client + its installer, served from this server (not github) so a
         # fresh machine bootstraps entirely from the dashboard it reports to.
         if self.path == "/agent.tar.gz":
-            return self._send_bytes("application/gzip", agent_bundle("tar"))
+            return self._send_bytes("application/gzip", agent_bundle.bundle("tar"))
         if self.path == "/agent.zip":
-            return self._send_bytes("application/zip", agent_bundle("zip"))
+            return self._send_bytes("application/zip", agent_bundle.bundle("zip"))
         if self.path in ("/bootstrap.sh", "/bootstrap.ps1"):
             # constant target from a literal map (not derived from the request path)
             fname = {"/bootstrap.sh": "bootstrap.sh", "/bootstrap.ps1": "bootstrap.ps1"}[self.path]
@@ -537,7 +435,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._send(200, host_services(host))
         if self.path.split("?")[0] == "/icon":
             q = parse_qs(urlparse(self.path).query)
-            ic = icon_bytes(q.get("name", [""])[0], q.get("image", [""])[0])
+            ic = icons.icon_bytes(q.get("name", [""])[0], q.get("image", [""])[0])
             return self._send_bytes(*ic) if ic else self._send(404, {"error": "no icon"})
         if self.path.split("?")[0] == "/api/glances":
             host = parse_qs(urlparse(self.path).query).get("host", [""])[0]

@@ -37,10 +37,12 @@ python renderers/html/_guard.py                 # shared path-injection barrier
 python renderers/html/pushcache.py              # push-freshness cache (live/stale/miss)
 python renderers/html/store.py                  # store slug policy + save/load
 python renderers/html/widget_store.py           # widget store CRUD round-trip
+python renderers/html/icons.py                   # service-icon slug candidates
+python renderers/html/agent_bundle.py            # agent tar.gz/zip builder
 python collectors/transport.py                   # shared collector HTTP (ssl ctx + get_json)
 python -m widgets.net                            # widget SSRF guard
 python -m widgets.engine                         # widget engine (auth/mapping)
-python -m widgets.fetchers                       # widget stat parsers
+python -m widgets.fetchers                       # widget stat parsers (prowlarr/sabnzbd/tautulli)
 python -m widgets.registry                       # catalog integrity + full_catalog merge
 python scanners/make_linux_topo.py --selftest
 ```
@@ -78,7 +80,7 @@ extracted `<script>` block.
 - **Reporting clients are NOT git checkouts.** A reporting host (e.g. the Pi agents) runs the *agent
   bundle* the dashboard serves — `bootstrap.sh` fetches `/agent.tar.gz` and extracts it (no `.git`), so
   `git pull` fails there. To ship agent-side code to a client: update + restart the dashboard **server**
-  first (it builds the bundle from its own repo — `AGENT_PATHS` in `topo_server.py`), then re-run the
+  first (it builds the bundle from its own repo — `AGENT_PATHS` in `renderers/html/agent_bundle.py`), then re-run the
   bootstrap on the client to re-fetch. Never tell the user to `git pull` on a client.
 - Python: stdlib-first, type hints, `from __future__ import annotations`. `requirements.txt` is
   intentionally tiny — don't add a dependency for what a few lines of stdlib can do.
