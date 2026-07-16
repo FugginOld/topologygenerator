@@ -84,6 +84,10 @@ CATALOG = [
     },
 ]
 
+# engine-driven widgets (data-defined, no hand-written fetcher) — see engine.py
+from . import definitions, engine  # noqa: E402
+CATALOG += [engine.entry(d) for d in definitions.DEFS]
+
 _BY_ID = {t["id"]: t for t in CATALOG}
 
 
