@@ -8,6 +8,12 @@ from __future__ import annotations
 
 from . import fetchers
 
+# shared field set for the url + API-key services (Servarr, SABnzbd, Tautulli, …)
+_ARR_FIELDS = [
+    {"name": "url", "label": "URL (http://host:port)", "type": "url", "required": True},
+    {"name": "key", "label": "API key", "type": "password", "required": True, "secret": True},
+]
+
 CATALOG = [
     {
         "id": "pihole", "label": "Pi-hole", "category": "Network", "icon": "pihole",
@@ -41,6 +47,35 @@ CATALOG = [
             {"name": "verify_tls", "label": "Verify TLS", "type": "bool"},
         ],
         "fetch": fetchers.unifi,
+    },
+    # ── media stack: url + API key each (Settings -> General/Security in the app) ──
+    {
+        "id": "sonarr", "label": "Sonarr", "category": "Media", "icon": "sonarr",
+        "desc": "Series, queue, missing episodes.", "fields": _ARR_FIELDS, "fetch": fetchers.sonarr,
+    },
+    {
+        "id": "radarr", "label": "Radarr", "category": "Media", "icon": "radarr",
+        "desc": "Movies, queue, missing.", "fields": _ARR_FIELDS, "fetch": fetchers.radarr,
+    },
+    {
+        "id": "prowlarr", "label": "Prowlarr", "category": "Downloads", "icon": "prowlarr",
+        "desc": "Indexers, grabs, queries.", "fields": _ARR_FIELDS, "fetch": fetchers.prowlarr,
+    },
+    {
+        "id": "bazarr", "label": "Bazarr", "category": "Media", "icon": "bazarr",
+        "desc": "Missing subtitles (episodes + movies).", "fields": _ARR_FIELDS, "fetch": fetchers.bazarr,
+    },
+    {
+        "id": "sabnzbd", "label": "SABnzbd", "category": "Downloads", "icon": "sabnzbd",
+        "desc": "Queue size, speed, time left.", "fields": _ARR_FIELDS, "fetch": fetchers.sabnzbd,
+    },
+    {
+        "id": "tautulli", "label": "Tautulli", "category": "Media", "icon": "tautulli",
+        "desc": "Active Plex streams + bandwidth.", "fields": _ARR_FIELDS, "fetch": fetchers.tautulli,
+    },
+    {
+        "id": "seerr", "label": "Seerr / Overseerr", "category": "Media", "icon": "overseerr",
+        "desc": "Pending / approved / available requests.", "fields": _ARR_FIELDS, "fetch": fetchers.seerr,
     },
 ]
 
@@ -78,11 +113,13 @@ def fetch(type_id: str, config: dict) -> dict:
 
 if __name__ == "__main__":   # ponytail: catalog integrity + JSON-safety, offline
     import json as _json
-    assert {t["id"] for t in CATALOG} == {"pihole", "proxmox", "unifi"}
+    ids = [t["id"] for t in CATALOG]
+    assert len(ids) == len(set(ids)), "duplicate widget id"
     for t in CATALOG:
         assert t["fields"] and callable(t["fetch"]), t["id"]
+        assert fetch(t["id"], {}) == {}, f"{t['id']} not graceful on empty config"   # no url -> {}
     assert secret_fields("proxmox") == ["token"]
     assert field_names("unifi")[0] == "url"
     _json.dumps(catalog_public())            # must be serialisable (no callables)
-    assert fetch("nope", {}) == {} and fetch("pihole", {"url": ""}) == {}   # graceful
-    print("widgets/registry self-check ok")
+    assert fetch("nope", {}) == {}
+    print(f"widgets/registry self-check ok ({len(CATALOG)} types)")

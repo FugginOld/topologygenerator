@@ -8,8 +8,24 @@ decides layout.
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.parse
 import urllib.request
+
+_TLS = ssl.create_default_context()          # homelab services are often self-signed
+_TLS.check_hostname = False
+_TLS.verify_mode = ssl.CERT_NONE
+
+
+def _get_json(url, headers=None, data=None, method=None, timeout=8):
+    """GET/POST -> parsed JSON, or None on any failure. Never raises. Unverified
+    TLS (the context is ignored for plain http)."""
+    try:
+        req = urllib.request.Request(url, headers=headers or {}, data=data, method=method)
+        with urllib.request.urlopen(req, timeout=timeout, context=_TLS) as r:
+            return json.load(r)
+    except Exception:
+        return None
 
 
 def _num(x) -> float:
@@ -148,6 +164,105 @@ def unifi(cfg: dict) -> dict:
         "rx_bps": tp.get("rx_bps"), "tx_bps": tp.get("tx_bps"),
         "gw_cpu": gw.get("cpu"), "gw_mem": gw.get("mem"),
     }
+
+
+# ── media stack (Servarr + friends): each returns a compact stats dict ────────
+def _arr_counts(base, key, list_path):
+    """Shared Servarr shape: item count from list_path, plus queue + wanted totals."""
+    items = _get_json(f"{base}{list_path}", {"X-Api-Key": key})
+    if items is None:
+        return None
+    q = _get_json(f"{base}/api/v3/queue?page=1&pageSize=1", {"X-Api-Key": key}) or {}
+    miss = _get_json(f"{base}/api/v3/wanted/missing?page=1&pageSize=1", {"X-Api-Key": key}) or {}
+    return (len(items) if isinstance(items, list) else None,
+            q.get("totalRecords"), miss.get("totalRecords"))
+
+
+def sonarr(cfg: dict) -> dict:
+    base = (cfg.get("url") or "").rstrip("/")
+    if not base:
+        return {}
+    c = _arr_counts(base, cfg.get("key", ""), "/api/v3/series")
+    return {} if c is None else {"series": c[0], "queue": c[1], "missing": c[2]}
+
+
+def radarr(cfg: dict) -> dict:
+    base = (cfg.get("url") or "").rstrip("/")
+    if not base:
+        return {}
+    c = _arr_counts(base, cfg.get("key", ""), "/api/v3/movie")
+    return {} if c is None else {"movies": c[0], "queue": c[1], "missing": c[2]}
+
+
+def prowlarr(cfg: dict) -> dict:
+    base, key = (cfg.get("url") or "").rstrip("/"), cfg.get("key", "")
+    if not base:
+        return {}
+    idx = _get_json(f"{base}/api/v1/indexer", {"X-Api-Key": key})
+    if idx is None:
+        return {}
+    stats = _get_json(f"{base}/api/v1/indexerstats", {"X-Api-Key": key}) or {}
+    ilist = (stats.get("indexers") if isinstance(stats, dict) else stats) or []
+    return {
+        "indexers": len(idx) if isinstance(idx, list) else None,
+        "enabled": sum(1 for i in idx if i.get("enable")) if isinstance(idx, list) else None,
+        "grabs": int(sum(_num(i.get("numberOfGrabs")) for i in ilist)),
+        "queries": int(sum(_num(i.get("numberOfQueries")) for i in ilist)),
+    }
+
+
+def sabnzbd(cfg: dict) -> dict:
+    base, key = (cfg.get("url") or "").rstrip("/"), cfg.get("key", "")
+    if not base:
+        return {}
+    d = _get_json(f"{base}/api?mode=queue&output=json&apikey={urllib.parse.quote(key)}")
+    q = d.get("queue") if isinstance(d, dict) else None
+    if not isinstance(q, dict):
+        return {}
+    return {
+        "status": q.get("status"),
+        "queued": int(_num(q.get("noofslots"))),
+        "speed_kbps": int(_num(q.get("kbpersec"))),
+        "mb_left": round(_num(q.get("mbleft")), 1),
+        "time_left": q.get("timeleft"),
+    }
+
+
+def tautulli(cfg: dict) -> dict:
+    base, key = (cfg.get("url") or "").rstrip("/"), cfg.get("key", "")
+    if not base:
+        return {}
+    d = _get_json(f"{base}/api/v2?apikey={urllib.parse.quote(key)}&cmd=get_activity")
+    data = ((d or {}).get("response") or {}).get("data")
+    if not isinstance(data, dict):
+        return {}
+    return {
+        "streams": int(_num(data.get("stream_count"))),
+        "transcodes": int(_num(data.get("stream_count_transcode"))),
+        "bandwidth_mbps": round(_num(data.get("total_bandwidth")) / 1000, 1),
+    }
+
+
+def bazarr(cfg: dict) -> dict:
+    base, key = (cfg.get("url") or "").rstrip("/"), cfg.get("key", "")
+    if not base:
+        return {}
+    ep = _get_json(f"{base}/api/episodes/wanted?length=1", {"X-API-KEY": key})
+    if ep is None:
+        return {}
+    mv = _get_json(f"{base}/api/movies/wanted?length=1", {"X-API-KEY": key}) or {}
+    return {"missing_episodes": ep.get("total"), "missing_movies": mv.get("total")}
+
+
+def seerr(cfg: dict) -> dict:
+    base, key = (cfg.get("url") or "").rstrip("/"), cfg.get("key", "")
+    if not base:
+        return {}
+    c = _get_json(f"{base}/api/v1/request/count", {"X-Api-Key": key})
+    if not isinstance(c, dict):
+        return {}
+    return {"pending": c.get("pending"), "approved": c.get("approved"),
+            "available": c.get("available"), "total": c.get("total")}
 
 
 if __name__ == "__main__":   # ponytail: pure response->stats mapping, offline
