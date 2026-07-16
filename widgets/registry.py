@@ -21,7 +21,7 @@ _ARR_FIELDS = [
 
 CATALOG = [
     {
-        "id": "pihole", "label": "Pi-hole", "category": "Network", "icon": "pihole",
+        "id": "pihole", "label": "Pi-hole", "category": "Network", "icon": "pi-hole",
         "desc": "DNS queries + blocked (Pi-hole v5 and v6).",
         "fields": [
             {"name": "url", "label": "Pi-hole URL", "type": "url", "required": True},
