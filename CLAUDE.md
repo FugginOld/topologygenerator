@@ -5,14 +5,19 @@ a network's real topology, a pipeline normalizes + enriches it, and renderers dr
 static SVG, and a live web dashboard). Reporting agents push each host's map + telemetry to the
 dashboard server.
 
-Domain vocabulary — **Topology, Collector, Card, Store** — is defined in `CONTEXT.md`. Use those
-names. This file is operational guidance (how to work in the repo), not the glossary.
+Domain vocabulary — **Topology, Collector, Card, Store, Widget** — is defined in `CONTEXT.md`. Use
+those names. This file is operational guidance (how to work in the repo), not the glossary.
 
 ## Pipeline
 
 `collectors/*.py` + `scanners/*.py` gather raw dicts → `core/normalize.py` (dedup by MAC, reconcile
 by IP/hostname, VLAN by subnet) → `core/enrich.py` (vendor via `core/oui.csv`, kind, aging) →
 `renderers/card.py` view-model → `renderers/{mermaid,static_svg,html}`.
+
+Two dashboard subsystems live beside it, both server-side only (not in the agent bundle):
+**Glances** (this host's live metrics — `core/glances.py`; remote hosts push via the agent) and the
+**Widget Store** (`widgets/` + `renderers/html/widget_store.py`, `/api/widget-*` routes — see
+`CONTEXT.md` → Widget, `docs/prd/widget-store.md`, `docs/widgets-adding.md`).
 
 ## Commands
 
@@ -29,8 +34,14 @@ python -m compileall -q .
 python tests/test_pipeline.py
 python tests/test_cards.py
 python renderers/html/store.py                  # store path-injection barrier
+python renderers/html/widget_store.py           # widget store barrier + CRUD
+python -m widgets.net                            # widget SSRF guard
+python -m widgets.engine                         # widget engine (auth/mapping)
+python -m widgets.fetchers                       # widget stat parsers
+python -m widgets.registry                       # catalog integrity + full_catalog merge
 python scanners/make_linux_topo.py --selftest
 ```
+(`widgets/*` use relative imports — run via `python -m widgets.<mod>`, like `collectors/`.)
 Also in CI: `bash -n *.sh`; `.ps1` files must be ASCII; dashboard JS via `node --check` on the
 extracted `<script>` block.
 

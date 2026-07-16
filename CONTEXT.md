@@ -46,3 +46,24 @@ in/out, no presentation, so it imports nothing server-specific and its barrier i
 unit-tested with no HTTP. `topology_server` depends on it one-way; the sidebar-row
 shaping (`kind`/`ip`, which needs `server_ip`) stays a view helper in the server,
 not in the store.
+
+## Widget
+
+A per-service dashboard panel (Pi-hole, Proxmox, qBittorrent…), Homepage-style —
+distinct from **Card** (network node) and the Glances panel (this host's metrics).
+Three nouns:
+
+- **Widget Type** — code: `{id, label, category, icon, fields, fetch}` in
+  `widgets/registry.py`. `fields` is the config-form schema; `fetch(cfg)` returns a
+  small `{key: value}` stats dict (same contract as **Collector** — stdlib-only,
+  never raises, `{}` on failure). Two kinds of Type: a hand-written fetcher in
+  `widgets/fetchers.py`, or a declarative **definition** (`widgets/definitions.py`)
+  run by the generic engine (`widgets/engine.py`: auth + endpoints + field mappings).
+- **Widget** — a user-configured *instance* of a Type owned by one host: `{id,
+  type, config, position, interval}`. Persisted by `renderers/html/widget_store.py`
+  (same guarded-directory barrier as **Store**, `out/widgets/<host>.json`). Config
+  holds secrets — masked on read, never sent to the browser.
+- **Widget Store** — the browsable catalog (`widgets/catalog.json`, all 155
+  Homepage types) + the persistence + the `/api/widget-*` routes + the `index.html`
+  UI. `built` types are installable; the rest list for reference. All widget HTTP
+  goes through `widgets/net.py` (SSRF guard: private targets only).
