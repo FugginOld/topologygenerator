@@ -1,6 +1,6 @@
 # PRD — Widget Store
 
-Status: draft · Owner: Joe · Related: `CONTEXT.md` (domain), `CLAUDE.md` (hard rules)
+Status: draft · Owner: FugginOld · Related: `CONTEXT.md` (domain), `CLAUDE.md` (hard rules)
 
 ## Problem
 
@@ -125,6 +125,7 @@ self-check (the barrier is the reason to isolate it — same as `store.py`).
 3. **Icons** — bundle a small local icon set, or extend `/icon` to serve them?
    (No external CDN allowed.)
 4. **Placement** — v1 is machine dashboards; do we later want a global board?
-5. **Config precedence** — if a service already has a `config.yaml` collector
-   block (unifi/proxmox), should a widget reuse it or always take its own form
-   config? (Lean: widget config is independent, to keep the store self-contained.)
+5. ~~Config precedence~~ — decided: a Type may declare `config_key`; the widget's
+   form values layer **over** that `config.yaml` collector block, so blank fields
+   inherit already-configured credentials (proxmox/unifi). pihole has no mapping
+   (its `dns` block uses different keys), so it's form-only.

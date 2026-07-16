@@ -446,6 +446,16 @@ def _widget_public(w: dict) -> dict:
             "secret_set": {k: bool(cfg.get(k)) for k in secrets}}
 
 
+def _effective_config(w: dict) -> dict:
+    """Config the fetcher actually runs with: the widget's form values layered
+    over the matching config.yaml collector block (Type.config_key), so a
+    proxmox/unifi widget inherits already-configured credentials when left blank."""
+    t = wreg.get(w.get("type", ""))
+    base = _cfg_block(t["config_key"]) if t and t.get("config_key") else {}
+    form = {k: v for k, v in (w.get("config") or {}).items() if v not in (None, "")}
+    return {**base, **form}                              # form overrides config.yaml; blanks inherit
+
+
 def widgets_list(host: str) -> list[dict]:
     """This host's widgets: masked config + short-cached live data."""
     if not host:
@@ -455,7 +465,7 @@ def widgets_list(host: str) -> list[dict]:
         key = f"{host}|{w['id']}"
         c = _widget_cache.get(key)
         if not (c and time.monotonic() - c["t"] < WIDGET_FRESH):
-            c = {"t": time.monotonic(), "data": wreg.fetch(w.get("type", ""), w.get("config", {}))}
+            c = {"t": time.monotonic(), "data": wreg.fetch(w.get("type", ""), _effective_config(w))}
             _widget_cache[key] = c
         out.append({**_widget_public(w), "data": c["data"]})
     return out

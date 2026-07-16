@@ -21,10 +21,10 @@ CATALOG = [
     {
         "id": "proxmox", "label": "Proxmox VE", "category": "System", "icon": "proxmox",
         "desc": "Node health, running VMs / LXC, CPU + memory.",
+        "config_key": "proxmox",     # inherit config.yaml's proxmox block when the form is blank
         "fields": [
-            {"name": "url", "label": "PVE URL", "type": "url", "required": True},
-            {"name": "token", "label": "API token (user@realm!id=secret)", "type": "password",
-             "required": True, "secret": True},
+            {"name": "url", "label": "PVE URL", "type": "url"},
+            {"name": "token", "label": "API token (user@realm!id=secret)", "type": "password", "secret": True},
             {"name": "verify_tls", "label": "Verify TLS", "type": "bool"},
             {"name": "node", "label": "Node (optional)", "type": "text"},
         ],
@@ -33,8 +33,9 @@ CATALOG = [
     {
         "id": "unifi", "label": "UniFi", "category": "Network", "icon": "unifi",
         "desc": "WAN status, client count, live throughput.",
+        "config_key": "unifi",       # inherit config.yaml's unifi block when the form is blank
         "fields": [
-            {"name": "url", "label": "Gateway URL", "type": "url", "required": True},
+            {"name": "url", "label": "Gateway URL", "type": "url"},
             {"name": "api_key", "label": "API key", "type": "password", "secret": True},
             {"name": "site", "label": "Site", "type": "text"},
             {"name": "verify_tls", "label": "Verify TLS", "type": "bool"},

@@ -167,6 +167,7 @@
   .wf-save{border:1px solid var(--hud);background:rgba(var(--glow),.12);color:var(--hud)}
   .wf-cancel{border:1px solid var(--line);background:transparent;color:var(--hud-dim)}
   .wf-err{color:var(--crit);font-size:10px;min-height:12px}
+  .wf-note{font-size:9px;color:var(--hud-dim);line-height:1.4;padding:2px 0 4px;border-bottom:1px solid var(--line)}
   /* Homepage-style service tiles for containers */
   .svc{position:relative;display:flex;align-items:center;gap:10px;background:var(--card-fill);border:1px solid var(--line);
     border-radius:6px;padding:10px 11px;text-decoration:none;color:inherit;transition:border-color .12s,box-shadow .12s}
@@ -1047,6 +1048,7 @@ async function openWidgetCatalog(){
 // config form from a Type's field schema; `inst` = the existing widget when editing
 function openWidgetForm(type,inst){
   const form=hel('form','wform'), inputs={};
+  if(type.config_key) form.appendChild(hel('div','wf-note','Leave blank to use config.yaml ('+type.config_key+').'));
   (type.fields||[]).forEach(f=>{
     const row=hel('label','wf-row'); row.appendChild(hel('span','wf-label',f.label||f.name));
     let inp=document.createElement('input');
