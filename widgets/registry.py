@@ -126,8 +126,8 @@ def full_catalog() -> list[dict]:
         b = built.get(wid)
         if b:
             out.append({"id": wid, "label": b["label"], "category": b.get("category") or w.get("category") or "Other",
-                        "icon": b.get("icon") or wid, "built": True, "desc": b.get("desc") or w.get("note") or "",
-                        "shows": w.get("shows") or [], "doc": w.get("doc"),
+                        "icon": b.get("icon") or wid, "built": True, "beta": bool(b.get("beta")),
+                        "desc": b.get("desc") or w.get("note") or "", "shows": w.get("shows") or [], "doc": w.get("doc"),
                         "fields": [dict(f) for f in b["fields"]], "config_key": b.get("config_key")})
         else:
             out.append({"id": wid, "label": w.get("title") or wid, "category": w.get("category") or "Other",
@@ -136,9 +136,9 @@ def full_catalog() -> list[dict]:
     for wid, b in built.items():                         # our built types not in the cache (e.g. seerr)
         if wid not in seen:
             out.append({"id": wid, "label": b["label"], "category": b.get("category") or "Other",
-                        "icon": b.get("icon") or wid, "built": True, "desc": b.get("desc") or "",
-                        "shows": [], "doc": None, "fields": [dict(f) for f in b["fields"]],
-                        "config_key": b.get("config_key")})
+                        "icon": b.get("icon") or wid, "built": True, "beta": bool(b.get("beta")),
+                        "desc": b.get("desc") or "", "shows": [], "doc": None,
+                        "fields": [dict(f) for f in b["fields"]], "config_key": b.get("config_key")})
     return out
 
 

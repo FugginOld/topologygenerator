@@ -183,6 +183,8 @@
   .wstore-nm{flex:1;font-size:11px;color:var(--card-title)}
   .wstore-row.unbuilt{opacity:.62}
   .wstore-badge{font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--hud-dim);border:1px solid var(--line);border-radius:3px;padding:2px 5px}
+  .wstore-badge.beta{color:var(--warn);border-color:var(--warn)}
+  .wstore-row.unbuilt .wc-mono,.wstore-row.unbuilt .wc-ico{filter:grayscale(.4)}
   .wstore-detail{display:flex;flex-direction:column;gap:9px;min-width:280px}
   .wsd-head{display:flex;align-items:center;gap:9px}
   .wsd-head .wc-ico{width:26px;height:26px}
@@ -1084,6 +1086,7 @@ function wStoreRow(t){
   row.appendChild(widgetIcon(t.icon,t.label));
   row.appendChild(hel('span','wstore-nm',t.label||t.id));
   if(!t.built) row.appendChild(hel('span','wstore-badge','not built'));
+  else if(t.beta) row.appendChild(hel('span','wstore-badge beta','beta'));
   row.onclick=()=>wStoreDetail(t);
   return row;
 }
@@ -1113,8 +1116,10 @@ function wStoreDetail(t){
   const head=hel('div','wsd-head'); head.appendChild(widgetIcon(t.icon,t.label));
   head.appendChild(hel('div','wsd-title',t.label||t.id));
   if(t.category) head.appendChild(hel('span','wsd-cat',t.category));
+  if(t.built&&t.beta) head.appendChild(hel('span','wstore-badge beta','beta'));
   wrap.appendChild(head);
   if(t.desc) wrap.appendChild(hel('p','wsd-desc',t.desc));
+  if(t.built&&t.beta) wrap.appendChild(hel('div','wsd-note','Beta — built from the Homepage spec but not yet verified against a live instance. Install it and hit ⟳ test; if it works, let us know and the beta tag comes off.'));
   const cfg=(t.fields?t.fields.map(f=>f.label||f.name):(t.config||[]));
   if(cfg&&cfg.length) wrap.appendChild(hel('div','wsd-meta','Configure: '+cfg.join(', ')));
   if(t.shows&&t.shows.length) wrap.appendChild(hel('div','wsd-meta','Shows: '+t.shows.join(', ')));

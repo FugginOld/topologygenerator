@@ -150,10 +150,13 @@ def fetch(defn: dict, cfg: dict) -> dict:
 
 
 def entry(defn: dict) -> dict:
-    """A registry CATALOG entry backed by the engine (bound fetch, derived fields)."""
+    """A registry CATALOG entry backed by the engine (bound fetch, derived fields).
+    Engine widgets default to beta (built from the spec, unverified live) until a
+    contributor who runs the service confirms it and sets beta=False."""
     return {"id": defn["id"], "label": defn["label"], "category": defn.get("category", "Other"),
             "icon": defn.get("icon", defn["id"]), "desc": defn.get("desc", ""),
             "fields": form_fields(defn), "config_key": defn.get("config_key"),
+            "beta": defn.get("beta", True),
             "fetch": (lambda cfg, d=defn: fetch(d, cfg))}
 
 
