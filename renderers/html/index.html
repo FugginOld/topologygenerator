@@ -168,6 +168,21 @@
   .wf-cancel{border:1px solid var(--line);background:transparent;color:var(--hud-dim)}
   .wf-err{color:var(--crit);font-size:10px;min-height:12px}
   .wf-note{font-size:9px;color:var(--hud-dim);line-height:1.4;padding:2px 0 4px;border-bottom:1px solid var(--line)}
+  .wc-mono{display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:7.5px;font-weight:700;letter-spacing:.02em}
+  .wcat-wrap{display:flex;flex-direction:column;gap:8px;min-width:300px;max-height:72vh}
+  .wcat-search{background:var(--bg0);border:1px solid var(--line);border-radius:4px;padding:7px 9px;color:var(--ink);font-family:inherit;font-size:11px}
+  .wcat-search:focus{outline:none;border-color:var(--hud)}
+  .wcat-list{overflow:auto;display:flex;flex-direction:column;gap:6px}
+  .wcat-head{font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--hud);padding:6px 0 2px}
+  .wh-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;margin:0 3px}
+  .wh-dot.ok{background:var(--ok)}
+  .wh-dot.bad{background:var(--crit)}
+  .wh-dot.testing{background:var(--warn)}
+  .wcard{cursor:grab}
+  .wcard.dragging{opacity:.45;cursor:grabbing}
+  .wcard .wh-btn{cursor:pointer}
+  .svc-toggle{display:flex;align-items:center;gap:6px;font-size:9px;letter-spacing:.06em;color:var(--hud-dim);text-transform:uppercase;margin-top:6px;cursor:pointer;user-select:none}
+  .svc-toggle input{width:13px;height:13px;accent-color:var(--hud);cursor:pointer}
   /* Homepage-style service tiles for containers */
   .svc{position:relative;display:flex;align-items:center;gap:10px;background:var(--card-fill);border:1px solid var(--line);
     border-radius:6px;padding:10px 11px;text-decoration:none;color:inherit;transition:border-color .12s,box-shadow .12s}
@@ -675,22 +690,29 @@ function svcTile(c,hip){
   const dot=hel('span','svc-dot'); dot.title=c.status||c.state||''; el.appendChild(dot);
   return el;
 }
+let svcRunningOnly=(()=>{ try{ return localStorage.getItem('svcRunningOnly')==='1'; }catch(e){ return false; } })();
+let _lastSvc=null;                                     // last services payload, for re-render on toggle
 function renderSvc(d){
+  _lastSvc=d;
   const p=document.getElementById('dashpanel');
   [...p.children].forEach(c=>{ if(c.id!=='glpanel'&&c.id!=='wpanel') c.remove(); });   // rebuild tiles, keep the live Glances + widget panels
   if(d.error){ const e=hel('div','dcard wide'); e.appendChild(hel('div','dl','No dashboard')); e.appendChild(hel('div','du',d.error)); p.appendChild(e); return; }
-  const cons=d.containers||[], svcs=d.services||[];
-  if(!cons.length && !svcs.length){
+  const allCons=d.containers||[], svcs=d.services||[];
+  if(!allCons.length && !svcs.length){
     const e=hel('div','dcard wide'); e.appendChild(hel('div','dl','Nothing found'));
     e.appendChild(hel('div','du','No docker/podman containers or running services detected'+(d.engine?' ('+d.engine+')':'')+'.'));
     p.appendChild(e); return;
   }
+  const running=allCons.filter(c=>c.state==='running').length;
+  const cons=svcRunningOnly?allCons.filter(c=>c.state==='running'):allCons;   // "running only" toggle
   const hip=(TOPOS.find(x=>x.id===activeId)||{}).ip;   // host address for service links
   const stacks={}, loose=[];
   cons.forEach(c=>{ (c.project?(stacks[c.project]=stacks[c.project]||[]):loose).push(c); });
-  const running=cons.filter(c=>c.state==='running').length;
-  const sc=statCard('Containers',cons.length);
-  sc.appendChild(hel('div','du',running+' running · '+(cons.length-running)+' stopped'+(d.engine?' · '+d.engine:'')));
+  const sc=statCard('Containers',allCons.length);
+  sc.appendChild(hel('div','du',running+' running · '+(allCons.length-running)+' stopped'+(d.engine?' · '+d.engine:'')));
+  const tg=hel('label','svc-toggle'); const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=svcRunningOnly;
+  cb.onchange=()=>{ svcRunningOnly=cb.checked; try{ localStorage.setItem('svcRunningOnly',cb.checked?'1':'0'); }catch(e){} if(_lastSvc) renderSvc(_lastSvc); };
+  tg.appendChild(cb); tg.appendChild(hel('span',null,'Running only')); sc.appendChild(tg);
   p.appendChild(sc);
   const group=(title,count)=>{ const g=hel('div','svc-group'); g.appendChild(hel('span',null,title)); g.appendChild(hel('span',null,String(count))); p.appendChild(g); };
   Object.keys(stacks).sort().forEach(proj=>{ group('Stack · '+proj,stacks[proj].length); stacks[proj].forEach(c=>p.appendChild(svcTile(c,hip))); });
@@ -1025,25 +1047,44 @@ function noticeEl(title,node){                                  // reuse the mod
   const b=notice.querySelector('.nc-body'); b.innerHTML=''; b.appendChild(node);
   notice.classList.remove('busy'); notice.style.display='flex';
 }
-function widgetIcon(name){
-  if(!name) return null;
+let wDragging=false;                                           // pause panel rebuilds mid-drag
+// icon: a bundled SVG (drop wicons/<name>.svg to override) else a colored monogram
+function widgetIcon(name,label){
+  const mono=()=>{ const s=hel('span','wc-ico wc-mono');
+    const t=String(label||name||'?').replace(/[^A-Za-z0-9]/g,'');
+    s.textContent=(t.slice(0,2)||'?').toUpperCase();
+    let h=0; const key=String(name||label||'x'); for(let i=0;i<key.length;i++) h=(h*31+key.charCodeAt(i))>>>0;
+    s.style.background='hsl('+(h%360)+',46%,44%)'; return s; };
+  if(!name) return mono();
   const img=document.createElement('img'); img.className='wc-ico'; img.alt=''; img.loading='lazy';
-  img.src='icon?name='+encodeURIComponent(name); img.onerror=()=>img.remove();
+  img.src='wicons/'+encodeURIComponent(name)+'.svg'; img.onerror=()=>img.replaceWith(mono());
   return img;
 }
+function wcatCard(t){
+  const card=hel('button','wc-card'); card.type='button';
+  card.appendChild(widgetIcon(t.icon,t.label));
+  card.appendChild(hel('div','wc-name',t.label||t.id));
+  if(t.desc) card.appendChild(hel('div','wc-desc',t.desc));
+  card.onclick=()=>openWidgetForm(t,null);
+  return card;
+}
+// catalog: search box + cards grouped by category
 async function openWidgetCatalog(){
-  const cat=await widgetCatalog(), wrap=hel('div','wcat');
-  if(!cat.length) wrap.appendChild(hel('div','wc-empty','No widgets available.'));
-  cat.forEach(t=>{
-    const card=hel('button','wc-card'); card.type='button';
-    const ic=widgetIcon(t.icon); if(ic) card.appendChild(ic);
-    card.appendChild(hel('div','wc-name',t.label||t.id));
-    if(t.category) card.appendChild(hel('div','wc-cat',t.category));
-    if(t.desc) card.appendChild(hel('div','wc-desc',t.desc));
-    card.onclick=()=>openWidgetForm(t,null);
-    wrap.appendChild(card);
-  });
-  noticeEl('Add Widget',wrap);
+  const cat=await widgetCatalog(), wrap=hel('div','wcat-wrap');
+  const search=document.createElement('input'); search.className='wcat-search'; search.type='text'; search.placeholder='Search widgets…';
+  const listEl=hel('div','wcat-list'); wrap.appendChild(search); wrap.appendChild(listEl);
+  function render(f){
+    listEl.innerHTML=''; f=(f||'').toLowerCase();
+    const groups={};
+    cat.filter(t=>!f||((t.label||'')+' '+(t.category||'')+' '+(t.desc||'')).toLowerCase().includes(f))
+       .forEach(t=>{ const c=t.category||'Other'; (groups[c]=groups[c]||[]).push(t); });
+    const names=Object.keys(groups).sort();
+    if(!names.length){ listEl.appendChild(hel('div','wc-empty','No matches.')); return; }
+    names.forEach(cn=>{ listEl.appendChild(hel('div','wcat-head',cn));
+      const grid=hel('div','wcat'); groups[cn].forEach(t=>grid.appendChild(wcatCard(t))); listEl.appendChild(grid); });
+  }
+  search.oninput=()=>render(search.value); render('');
+  noticeEl('Add Widget',wrap); setTimeout(()=>search.focus(),40);
 }
 // config form from a Type's field schema; `inst` = the existing widget when editing
 function openWidgetForm(type,inst){
@@ -1061,6 +1102,9 @@ function openWidgetForm(type,inst){
     }
     inputs[f.name]=inp; row.appendChild(inp); form.appendChild(row);
   });
+  const iv=document.createElement('input'); iv.type='number'; iv.min='5'; iv.placeholder='20 (default)';
+  if(inst&&inst.interval) iv.value=inst.interval;
+  const ivrow=hel('label','wf-row'); ivrow.appendChild(hel('span','wf-label','Refresh interval (seconds)')); ivrow.appendChild(iv); form.appendChild(ivrow);
   const err=hel('div','wf-err'); form.appendChild(err);
   const foot=hel('div','wf-foot');
   const cancel=hel('button','wf-cancel','Cancel'); cancel.type='button'; cancel.onclick=hideNotice;
@@ -1073,10 +1117,11 @@ function openWidgetForm(type,inst){
       if(f.type==='bool') config[f.name]=inp.checked;
       else if(inp.value!=='') config[f.name]=inp.value;   // blank password -> omit, server keeps stored
     });
+    const interval=iv.value?Number(iv.value):0;
     try{
       const [url,body]=inst
-        ? ['api/widget-update',{host:activeId,id:inst.id,config}]
-        : ['api/widget-add',{host:activeId,type:type.id,config}];
+        ? ['api/widget-update',{host:activeId,id:inst.id,config,interval}]
+        : ['api/widget-add',{host:activeId,type:type.id,config,interval}];
       const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       const d=await r.json(); if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
       hideNotice(); loadWidgets();
@@ -1094,16 +1139,28 @@ function wvFmt(k,v){
   return String(v);
 }
 function widgetPanel(w,type){
-  const card=hel('div','wcard'), head=hel('div','whead');
-  const ic=widgetIcon(type&&type.icon); if(ic) head.appendChild(ic);
+  const card=hel('div','wcard'); card.dataset.wid=w.id;
+  const head=hel('div','whead'), data=w.data||{}, keys=Object.keys(data);
+  head.appendChild(widgetIcon(type&&type.icon,(type&&type.label)||w.type));
   head.appendChild(hel('span','wh-name',(type&&type.label)||w.type));
+  const dot=hel('span','wh-dot '+(keys.length?'ok':'bad')); dot.title=keys.length?'live':'no data'; head.appendChild(dot);
+  const test=hel('button','wh-btn','⟳'); test.type='button'; test.title='test connection'; test.onclick=()=>testWidget(w,dot);
   const edit=hel('button','wh-btn','⚙'); edit.type='button'; edit.title='edit'; edit.onclick=()=>{ if(type) openWidgetForm(type,w); };
   const del=hel('button','wh-btn','×'); del.type='button'; del.title='remove'; del.onclick=()=>removeWidget(w);
-  head.appendChild(edit); head.appendChild(del); card.appendChild(head);
-  const body=hel('div','wbody'), data=w.data||{}, keys=Object.keys(data);
+  head.appendChild(test); head.appendChild(edit); head.appendChild(del); card.appendChild(head);
+  const body=hel('div','wbody');
   if(!keys.length) body.appendChild(hel('div','wb-empty','No data — check the widget’s URL / credentials.'));
   else keys.forEach(k=>{ const r=hel('div','wrow'); r.appendChild(hel('span','wk',wkLabel(k))); r.appendChild(hel('span','wv',wvFmt(k,data[k]))); body.appendChild(r); });
   card.appendChild(body); return card;
+}
+async function testWidget(w,dot){
+  dot.className='wh-dot testing'; dot.title='testing…';
+  try{
+    const r=await fetch('api/widget-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:activeId,id:w.id})});
+    const d=await r.json();
+    dot.className='wh-dot '+(d.ok?'ok':'bad'); dot.title=d.ok?'OK — data received':'No data — check URL / credentials';
+    loadWidgets();
+  }catch(e){ dot.className='wh-dot bad'; dot.title='error'; }
 }
 function removeWidget(w){
   confirmNotice('Remove widget','Remove this '+w.type+' widget?',async()=>{
@@ -1111,8 +1168,21 @@ function removeWidget(w){
     hideNotice(); loadWidgets();
   });
 }
+// drag-to-reorder widget panels (persists via /api/widget-reorder), like the Glances tiles
+function attachWDrag(wrap){
+  let src=null;
+  wrap.querySelectorAll('.wcard').forEach(c=>{
+    c.draggable=true;
+    c.addEventListener('dragstart',e=>{ src=c; wDragging=true; c.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
+    c.addEventListener('dragend',()=>{ wDragging=false; c.classList.remove('dragging'); });
+    c.addEventListener('dragover',e=>{ e.preventDefault(); const t=e.currentTarget; if(!src||src===t)return;
+      const r=t.getBoundingClientRect(); wrap.insertBefore(src,(e.clientX-r.left)>r.width/2?t.nextSibling:t); });
+    c.addEventListener('drop',e=>{ e.preventDefault(); const order=[...wrap.querySelectorAll('.wcard')].map(x=>x.dataset.wid);
+      fetch('api/widget-reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:activeId,order})}); });
+  });
+}
 async function loadWidgets(){
-  if(viewMode!=='dashboard'||isNetwork()||!activeId) return;
+  if(viewMode!=='dashboard'||isNetwork()||!activeId||wDragging) return;   // don't rebuild mid-drag
   let list; try{ list=await (await fetch('api/widgets?host='+encodeURIComponent(activeId)+'&_='+Date.now())).json(); }catch(e){ return; }
   const p=document.getElementById('dashpanel'); if(!p) return;
   let wp=document.getElementById('wpanel');
@@ -1120,6 +1190,7 @@ async function loadWidgets(){
   const cat=await widgetCatalog(), byId={}; cat.forEach(t=>byId[t.id]=t);
   const fresh=hel('div','wpanel'); fresh.id='wpanel';
   list.forEach(w=>fresh.appendChild(widgetPanel(w,byId[w.type])));
+  attachWDrag(fresh);
   if(wp){ p.replaceChild(fresh,wp); }
   else{ const gl=document.getElementById('glpanel'); p.insertBefore(fresh, gl?gl.nextSibling:p.firstChild); }
 }

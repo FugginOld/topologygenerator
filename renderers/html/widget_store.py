@@ -49,23 +49,39 @@ def list_for(host: str) -> list[dict]:
     return sorted(_read(host), key=lambda w: w.get("position", 0))
 
 
-def add(host: str, wtype: str, config: dict) -> dict:
+def _set_interval(w: dict, interval) -> None:
+    """A positive int sets a per-widget refresh; 0 clears it (back to the global
+    default); None leaves it unchanged."""
+    if interval is None:
+        return
+    try:
+        iv = int(interval)
+    except (TypeError, ValueError):
+        return
+    if iv > 0:
+        w["interval"] = iv
+    else:
+        w.pop("interval", None)
+
+
+def add(host: str, wtype: str, config: dict, interval=None) -> dict:
     ws = _read(host)
     n = max((int(re.sub(r"\D", "", w["id"]) or 0) for w in ws), default=0) + 1
-    w = {"id": f"w-{n}", "type": wtype, "config": config or {},
-         "position": len(ws)}
+    w = {"id": f"w-{n}", "type": wtype, "config": config or {}, "position": len(ws)}
+    _set_interval(w, interval)
     ws.append(w)
     _write(host, ws)
     return w
 
 
-def update(host: str, wid: str, config: dict) -> dict | None:
+def update(host: str, wid: str, config: dict, interval=None) -> dict | None:
     """Replace a widget's config wholesale. The caller (server) has already
     resolved masked secrets against the stored config, so this is authoritative."""
     ws = _read(host)
     for w in ws:
         if w["id"] == wid:
             w["config"] = config or {}
+            _set_interval(w, interval)
             _write(host, ws)
             return w
     return None

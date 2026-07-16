@@ -442,6 +442,7 @@ def _widget_public(w: dict) -> dict:
     secrets = set(wreg.secret_fields(w.get("type", "")))
     cfg = w.get("config", {})
     return {"id": w["id"], "type": w["type"], "position": w.get("position", 0),
+            "interval": w.get("interval"),
             "config": {k: ("" if k in secrets else v) for k, v in cfg.items()},
             "secret_set": {k: bool(cfg.get(k)) for k in secrets}}
 
@@ -463,8 +464,9 @@ def widgets_list(host: str) -> list[dict]:
     out = []
     for w in widget_store.list_for(host):
         key = f"{host}|{w['id']}"
+        ttl = w.get("interval") or WIDGET_FRESH             # per-widget refresh, else global
         c = _widget_cache.get(key)
-        if not (c and time.monotonic() - c["t"] < WIDGET_FRESH):
+        if not (c and time.monotonic() - c["t"] < ttl):
             c = {"t": time.monotonic(), "data": wreg.fetch(w.get("type", ""), _effective_config(w))}
             _widget_cache[key] = c
         out.append({**_widget_public(w), "data": c["data"]})
@@ -634,7 +636,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if not host or not wreg.get(wtype):
                     return self._send(400, {"error": "missing host or unknown widget type"})
                 cfg = _clean_config(wtype, b.get("config", {}))
-                return self._send(200, _widget_public(widget_store.add(host, wtype, cfg)))
+                return self._send(200, _widget_public(widget_store.add(host, wtype, cfg, b.get("interval"))))
             if self.path == "/api/widget-update":
                 b = self._body()
                 host, wid = store.stable_slug(b.get("host", "")), b.get("id", "")
@@ -643,7 +645,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._send(404, {"error": "no such widget"})
                 cfg = _clean_config(cur["type"], b.get("config", {}), cur.get("config"))
                 _widget_cache.pop(f"{host}|{wid}", None)          # re-fetch with the new config
-                return self._send(200, _widget_public(widget_store.update(host, wid, cfg)))
+                return self._send(200, _widget_public(widget_store.update(host, wid, cfg, b.get("interval"))))
+            if self.path == "/api/widget-test":
+                b = self._body()
+                host, wid = store.stable_slug(b.get("host", "")), b.get("id", "")
+                w = next((x for x in widget_store.list_for(host) if x["id"] == wid), None)
+                if not w:
+                    return self._send(404, {"error": "no such widget"})
+                data = wreg.fetch(w.get("type", ""), _effective_config(w))   # fresh, bypass cache
+                _widget_cache[f"{host}|{wid}"] = {"t": time.monotonic(), "data": data}
+                return self._send(200, {"ok": bool(data), "empty": not data, "data": data})
             if self.path == "/api/widget-delete":
                 b = self._body()
                 host, wid = store.stable_slug(b.get("host", "")), b.get("id", "")
