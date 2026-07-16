@@ -524,8 +524,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/agent.zip":
             return self._send_bytes("application/zip", agent_bundle("zip"))
         if self.path in ("/bootstrap.sh", "/bootstrap.ps1"):
+            # constant target from a literal map (not derived from the request path)
+            fname = {"/bootstrap.sh": "bootstrap.sh", "/bootstrap.ps1": "bootstrap.ps1"}[self.path]
             try:
-                with open(os.path.join(ROOT, self.path.lstrip("/")), "rb") as fh:
+                with open(os.path.join(ROOT, fname), "rb") as fh:
                     return self._send_bytes("text/plain; charset=utf-8", fh.read())
             except OSError:
                 return self._send(404, {"error": "not found"})
