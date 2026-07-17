@@ -709,10 +709,12 @@ function svcIcon(c,hip,port,down){
   return img;
 }
 const gpct=s=>{const n=parseFloat(s);return isNaN(n)?null:Math.max(0,Math.min(100,n));};   // "3.20%" -> 3.2
-function gauge(label,val,raw){                                  // radial CPU/MEM ring
+const memShort=m=>{const x=String(m||'').match(/([\d.]+)\s*([KMGT])/i);   // "15.98MiB" -> "16M"
+  if(!x) return ''; const n=parseFloat(x[1]); return (n>=10?Math.round(n):n)+x[2].toUpperCase();};
+function gauge(label,val,center,tip){                          // ring fill = %, center text set by caller
   const g=hel('div','gg'), ring=hel('div','ring'+(val>=85?' hot':val>=60?' warm':''));
-  ring.style.setProperty('--v',val); ring.appendChild(hel('b',null,Math.round(val)));
-  g.appendChild(ring); g.appendChild(hel('em',null,label)); g.title=label+' '+(raw||val+'%'); return g;
+  ring.style.setProperty('--v',val); ring.appendChild(hel('b',null,center));
+  g.appendChild(ring); g.appendChild(hel('em',null,label)); g.title=label+' '+tip; return g;
 }
 function svcTile(c,hip){
   const down=c.state&&c.state!=='running', port=pubPort(c.ports);
@@ -726,8 +728,8 @@ function svcTile(c,hip){
   const cg=gpct(c.cpu), mg=gpct(c.memp);
   if(cg!=null||mg!=null){
     const row=hel('div','svc-gauges');
-    if(cg!=null) row.appendChild(gauge('CPU',cg,c.cpu));
-    if(mg!=null) row.appendChild(gauge('MEM',mg,c.mem||c.memp));
+    if(cg!=null) row.appendChild(gauge('CPU',cg,Math.round(cg),c.cpu));
+    if(mg!=null) row.appendChild(gauge('MEM',mg,memShort(c.mem)||Math.round(mg),c.mem||c.memp));
     main.appendChild(row);
   }
   el.appendChild(main);
