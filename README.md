@@ -6,6 +6,8 @@
 
 [![CI](https://github.com/FugginOld/topographer/actions/workflows/ci.yml/badge.svg)](https://github.com/FugginOld/topographer/actions/workflows/ci.yml)
 
+I never could find a dashboard service I liked. So...using AI, I prompted what I wanted to see. I always wanted to build a network topology but I figured there had to be a way to do it automatically instead of manually running all the commands to compile the network information then piece it together. Same thing with every machine on the network that had a topology to generate as well as a dashboard for that machine. I like it..it works for me. I hope you enjoy it for what it is. - FugginOld
+
 Two topology tools in one repo:
 
 1. **Network topology** — auto-discover a homelab network from live sources,
