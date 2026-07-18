@@ -166,51 +166,103 @@ def _gib(b) -> str:
     return f"{int(b)} B"
 
 
-def _guest_detail(g: dict) -> list[list]:
-    """PVE summary rows for a guest tile — the fields /cluster/resources gives for free."""
+def _guest_ips(col, node: str, kind: str, vmid) -> list[str]:
+    """All non-loopback IPv4s of a running guest (lxc /interfaces, qemu agent). []
+    when the container's off or the VM has no guest agent."""
+    ips = []
+    try:
+        if kind == "lxc":
+            for i in col._get(f"/nodes/{node}/lxc/{vmid}/interfaces") or []:
+                ip = (i.get("inet") or "").split("/")[0]
+                if ip and not ip.startswith("127."):
+                    ips.append(ip)
+        else:
+            data = col._get(f"/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces") or {}
+            for iface in data.get("result", []):
+                for a in iface.get("ip-addresses", []):
+                    ip = a.get("ip-address", "")
+                    if a.get("ip-address-type") == "ipv4" and ip and not ip.startswith("127."):
+                        ips.append(ip)
+    except Exception:
+        return []
+    seen = set()
+    return [x for x in ips if not (x in seen or seen.add(x))]   # dedupe, keep order
+
+
+def _guest_detail(col, g: dict) -> list[list]:
+    """PVE summary rows for a guest tile, ordered like the PVE panel. Cheap fields
+    come from /cluster/resources; SWAP / Unprivileged / IPs need a per-guest call
+    (running guests only), each best-effort."""
+    kind, node, vmid = g["type"], g.get("node"), g.get("vmid")
+    running = g.get("status") == "running"
     cpu, maxcpu = (g.get("cpu") or 0) * 100, int(g.get("maxcpu") or 0)
     mem, maxmem = g.get("mem") or 0, g.get("maxmem") or 0
     disk, maxdisk = g.get("disk") or 0, g.get("maxdisk") or 0
-    rows = [
-        ["Status", g.get("status") or "unknown"],
-        ["HA State", g.get("hastate") or "none"],
-        ["Node", g.get("node") or "—"],
-    ]
+    unpriv, swap_row, ips = None, None, []
+    if running:
+        if kind == "lxc":
+            cur = col._get(f"/nodes/{node}/lxc/{vmid}/status/current") or {}
+            mxs = cur.get("maxswap") or 0
+            if mxs:
+                swap_row = ["SWAP usage", f"{(cur.get('swap') or 0) / mxs * 100:.2f}% "
+                                          f"({_gib(cur.get('swap'))} of {_gib(mxs)})"]
+            cf = col._get(f"/nodes/{node}/lxc/{vmid}/config") or {}
+            if "unprivileged" in cf:
+                unpriv = "Yes" if cf.get("unprivileged") else "No"
+        ips = _guest_ips(col, node, kind, vmid)
+    rows = [["Status", g.get("status") or "unknown"],
+            ["HA State", g.get("hastate") or "none"],
+            ["Node", node or "—"]]
+    if unpriv is not None:
+        rows.append(["Unprivileged", unpriv])
     if maxcpu:
         rows.append(["CPU usage", f"{cpu:.2f}% of {maxcpu} CPU{'s' if maxcpu != 1 else ''}"])
     if maxmem:
         rows.append(["Memory usage", f"{mem / maxmem * 100:.2f}% ({_gib(mem)} of {_gib(maxmem)})"])
+    if swap_row:
+        rows.append(swap_row)
     if disk and maxdisk:                                    # qemu often reports disk=0 (can't see inside) -> skip
         rows.append(["Bootdisk size", f"{disk / maxdisk * 100:.2f}% ({_gib(disk)} of {_gib(maxdisk)})"])
+    if ips:
+        rows.append(["IPs", ", ".join(ips[:6])])
     return rows
 
 
 def _proxmox_guests(host_id: str) -> list[dict]:
-    """VMs / LXC of the PVE node whose name matches this host, shaped as container
-    tiles (project = node, so the existing dashboard groups them under the node).
-    [] when Proxmox is off or the host isn't a PVE node."""
+    """VMs / LXC shaped as container tiles for a PVE host's dashboard (project =
+    node, so the dashboard groups them under the node). A host is a PVE host if its
+    name matches a node name, or its reporting IP is the configured PVE endpoint
+    (then the whole cluster is shown). [] otherwise / when Proxmox is off."""
     cfg = _cfg_block("proxmox")
     if not cfg.get("enabled") or not cfg.get("url"):
         return []
     try:
-        name = (store.load(host_id) or {}).get("name", "")
+        d = store.load(host_id) or {}
     except (OSError, ValueError):
-        name = ""
-    key = name.strip().lower().split(".")[0]                # hostname portion of the machine name
-    if not key:
+        d = {}
+    name_key = (d.get("name") or "").strip().lower().split(".")[0]     # hostname portion of the machine name
+    host_ip = (d.get("source") or "").strip()                          # reporting IP (empty for a local card)
+    url_ip = (urlparse(cfg["url"]).hostname or "").strip()
+    is_endpoint = bool(host_ip) and host_ip == url_ip                  # this host IS the PVE API box
+    if not name_key and not is_endpoint:
         return []
     try:
         from collectors.proxmox import ProxmoxCollector
-        res = ProxmoxCollector(cfg)._get("/cluster/resources") or []   # cluster-wide, single call
+        col = ProxmoxCollector(cfg)
+        res = col._get("/cluster/resources") or []                     # cluster-wide, single call
     except Exception:
         return []
-    node = next((r.get("node") for r in res
-                 if r.get("type") == "node" and (r.get("node") or "").lower() == key), None)
-    if not node:
+    matched = next((r.get("node") for r in res
+                    if r.get("type") == "node" and (r.get("node") or "").lower() == name_key), None)
+    if matched:
+        want = lambda g: g.get("node") == matched                      # name match -> just that node
+    elif is_endpoint:
+        want = lambda g: True                                          # endpoint IP -> the whole cluster
+    else:
         return []
     out = []
     for g in res:
-        if g.get("type") not in ("qemu", "lxc") or g.get("node") != node:
+        if g.get("type") not in ("qemu", "lxc") or not want(g):
             continue
         running, vmid, maxmem = g.get("status") == "running", g.get("vmid"), g.get("maxmem") or 0
         out.append({
@@ -218,13 +270,13 @@ def _proxmox_guests(host_id: str) -> list[dict]:
             "image": ("VM" if g["type"] == "qemu" else "LXC") + (f" · {vmid}" if vmid else ""),
             "state": "running" if running else "stopped",
             "status": _up_status(g.get("uptime")) if running else (g.get("status") or "stopped"),
-            "project": node,                                # groups under the node in the dashboard
+            "project": g.get("node"),                                  # groups under the node in the dashboard
             "cpu": f"{(g.get('cpu') or 0) * 100:.1f}%" if running else "",
             "memp": f"{(g.get('mem') or 0) / maxmem * 100:.1f}%" if running and maxmem else "",
-            "detail": _guest_detail(g),                     # PVE summary rows shown under the graph
+            "detail": _guest_detail(col, g),                           # PVE summary rows shown under the graph
             "engine": "proxmox",
         })
-    out.sort(key=lambda c: (c["state"] != "running", c["name"].lower()))
+    out.sort(key=lambda c: (c["state"] != "running", c["project"] or "", c["name"].lower()))
     return out
 
 
