@@ -147,13 +147,72 @@ def _local_services() -> dict:
         return {"error": f"local service probe failed: {e}"}
 
 
+def _up_status(secs) -> str:
+    """PVE uptime seconds -> docker-style 'Up N unit' so the tile's uptime parser reads it."""
+    secs = int(secs or 0)
+    for n, word in ((86400, "day"), (3600, "hour"), (60, "minute"), (1, "second")):
+        if secs >= n:
+            v = secs // n
+            return f"Up {v} {word}{'s' if v != 1 else ''}"
+    return "Up"
+
+
+def _proxmox_guests(host_id: str) -> list[dict]:
+    """VMs / LXC of the PVE node whose name matches this host, shaped as container
+    tiles (project = node, so the existing dashboard groups them under the node).
+    [] when Proxmox is off or the host isn't a PVE node."""
+    cfg = _cfg_block("proxmox")
+    if not cfg.get("enabled") or not cfg.get("url"):
+        return []
+    try:
+        name = (store.load(host_id) or {}).get("name", "")
+    except (OSError, ValueError):
+        name = ""
+    key = name.strip().lower().split(".")[0]                # hostname portion of the machine name
+    if not key:
+        return []
+    try:
+        from collectors.proxmox import ProxmoxCollector
+        res = ProxmoxCollector(cfg)._get("/cluster/resources") or []   # cluster-wide, single call
+    except Exception:
+        return []
+    node = next((r.get("node") for r in res
+                 if r.get("type") == "node" and (r.get("node") or "").lower() == key), None)
+    if not node:
+        return []
+    out = []
+    for g in res:
+        if g.get("type") not in ("qemu", "lxc") or g.get("node") != node:
+            continue
+        running, vmid, maxmem = g.get("status") == "running", g.get("vmid"), g.get("maxmem") or 0
+        out.append({
+            "name": g.get("name") or f"{g['type']}{vmid}",
+            "image": ("VM" if g["type"] == "qemu" else "LXC") + (f" · {vmid}" if vmid else ""),
+            "state": "running" if running else "stopped",
+            "status": _up_status(g.get("uptime")) if running else (g.get("status") or "stopped"),
+            "project": node,                                # groups under the node in the dashboard
+            "cpu": f"{(g.get('cpu') or 0) * 100:.1f}%" if running else "",
+            "memp": f"{(g.get('mem') or 0) / maxmem * 100:.1f}%" if running and maxmem else "",
+            "engine": "proxmox",
+        })
+    out.sort(key=lambda c: (c["state"] != "running", c["name"].lower()))
+    return out
+
+
 def host_services(host_id: str) -> dict:
     """Containers / compose stacks / services for a machine's dashboard. The
     server's own machine is probed directly; a remote host serves whatever its
-    agent last reported (push model, like telemetry)."""
-    if host_id and not _is_remote(host_id):
-        return _local_services()
-    return _pushed_svc.get(host_id) or {           # live/stale last-known, else the how-to
+    agent last reported (push model, like telemetry). A PVE host also gets its
+    VMs / LXC folded in as tiles, grouped by node."""
+    guests = _proxmox_guests(host_id)
+    base = _local_services() if (host_id and not _is_remote(host_id)) else _pushed_svc.get(host_id)
+    if guests:
+        merged = dict(base) if isinstance(base, dict) and not base.get("error") else {}
+        merged["containers"] = (merged.get("containers") or []) + guests
+        merged.setdefault("engine", "proxmox")
+        merged["live"] = True
+        return merged
+    return base or {                               # live/stale last-known, else the how-to
         "error": "no services reported for this host yet — its agent reports "
                  "containers/services automatically once updated (git pull or "
                  "re-run bootstrap on that machine)."}

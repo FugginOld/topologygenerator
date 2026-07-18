@@ -796,7 +796,8 @@ function renderSvc(d){
   tg.appendChild(cb); tg.appendChild(hel('span',null,'Running only')); sc.appendChild(tg);
   p.appendChild(sc);
   const group=(title,count)=>{ const g=hel('div','svc-group'); g.appendChild(hel('span',null,title)); g.appendChild(hel('span',null,String(count))); p.appendChild(g); };
-  Object.keys(stacks).sort().forEach(proj=>{ group('Stack · '+proj,stacks[proj].length); stacks[proj].forEach(c=>p.appendChild(svcTile(c,hip))); });
+  const gword=d.engine==='proxmox'?'Node · ':'Stack · ';   // PVE guests group by node, not compose project
+  Object.keys(stacks).sort().forEach(proj=>{ group(gword+proj,stacks[proj].length); stacks[proj].forEach(c=>p.appendChild(svcTile(c,hip))); });
   if(loose.length){ group('Containers',loose.length); loose.forEach(c=>p.appendChild(svcTile(c,hip))); }
   if(svcs.length){ const card=hel('div','dcard wide'); card.appendChild(hel('div','dl','Running services ('+svcs.length+')')); card.appendChild(hel('div','du',svcs.join(' · '))); p.appendChild(card); }
 }
