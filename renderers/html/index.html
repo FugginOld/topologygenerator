@@ -221,6 +221,11 @@
   .hm .hv{font-size:9px;font-weight:600;color:#3fbf6a;font-variant-numeric:tabular-nums}
   .hm.up .hv{color:var(--card-title)}
   .hm .msp{width:26px;height:13px;display:block}
+  /* PVE guest tile: Proxmox summary rows under the graph */
+  .svc-detail{margin-top:6px;display:flex;flex-direction:column;gap:1px}
+  .sd-row{display:flex;justify-content:space-between;gap:10px;font-size:9px;padding:2px 0;border-top:1px solid var(--line)}
+  .sd-k{color:var(--hud-dim);letter-spacing:.02em}
+  .sd-v{color:var(--card-title);text-align:right;font-variant-numeric:tabular-nums}
   /* Glances system panel: 3x2 tile grid, Homepage-style */
   .gwrap{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
   .gtile{position:relative;overflow:hidden;background:var(--card-fill);border:1px solid var(--line);border-radius:8px;
@@ -766,6 +771,11 @@ function svcTile(c,hip){
     if(io!=null) row.appendChild(hudMetric('I/O',ioShort(h&&h.io.length?h.io[h.io.length-1]:0),h&&h.io,'245,170,90'));
     if(up) row.appendChild(hudMetric('UP',up,null,null,true));
     main.appendChild(row);
+  }
+  if(Array.isArray(c.detail)&&c.detail.length){            // PVE summary rows (labels/values untrusted -> textContent)
+    const dt=hel('div','svc-detail');
+    c.detail.forEach(kv=>{ const r=hel('div','sd-row'); r.appendChild(hel('span','sd-k',kv[0])); r.appendChild(hel('span','sd-v',kv[1])); dt.appendChild(r); });
+    main.appendChild(dt);
   }
   el.appendChild(main);
   const dot=hel('span','svc-dot'); dot.title=c.status||c.state||''; el.appendChild(dot);

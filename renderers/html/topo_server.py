@@ -157,6 +157,34 @@ def _up_status(secs) -> str:
     return "Up"
 
 
+def _gib(b) -> str:
+    """Bytes -> '301.24 MiB' / '16.01 GiB', matching the PVE summary panel."""
+    b = float(b or 0)
+    for unit, div in (("TiB", 2**40), ("GiB", 2**30), ("MiB", 2**20), ("KiB", 2**10)):
+        if b >= div:
+            return f"{b / div:.2f} {unit}"
+    return f"{int(b)} B"
+
+
+def _guest_detail(g: dict) -> list[list]:
+    """PVE summary rows for a guest tile — the fields /cluster/resources gives for free."""
+    cpu, maxcpu = (g.get("cpu") or 0) * 100, int(g.get("maxcpu") or 0)
+    mem, maxmem = g.get("mem") or 0, g.get("maxmem") or 0
+    disk, maxdisk = g.get("disk") or 0, g.get("maxdisk") or 0
+    rows = [
+        ["Status", g.get("status") or "unknown"],
+        ["HA State", g.get("hastate") or "none"],
+        ["Node", g.get("node") or "—"],
+    ]
+    if maxcpu:
+        rows.append(["CPU usage", f"{cpu:.2f}% of {maxcpu} CPU{'s' if maxcpu != 1 else ''}"])
+    if maxmem:
+        rows.append(["Memory usage", f"{mem / maxmem * 100:.2f}% ({_gib(mem)} of {_gib(maxmem)})"])
+    if disk and maxdisk:                                    # qemu often reports disk=0 (can't see inside) -> skip
+        rows.append(["Bootdisk size", f"{disk / maxdisk * 100:.2f}% ({_gib(disk)} of {_gib(maxdisk)})"])
+    return rows
+
+
 def _proxmox_guests(host_id: str) -> list[dict]:
     """VMs / LXC of the PVE node whose name matches this host, shaped as container
     tiles (project = node, so the existing dashboard groups them under the node).
@@ -193,6 +221,7 @@ def _proxmox_guests(host_id: str) -> list[dict]:
             "project": node,                                # groups under the node in the dashboard
             "cpu": f"{(g.get('cpu') or 0) * 100:.1f}%" if running else "",
             "memp": f"{(g.get('mem') or 0) / maxmem * 100:.1f}%" if running and maxmem else "",
+            "detail": _guest_detail(g),                     # PVE summary rows shown under the graph
             "engine": "proxmox",
         })
     out.sort(key=lambda c: (c["state"] != "running", c["name"].lower()))
