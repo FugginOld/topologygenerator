@@ -310,7 +310,7 @@
   <div id="zoom">
     <button id="zin" title="zoom in">+</button>
     <button id="zout" title="zoom out">−</button>
-    <button id="zorient" title="toggle horizontal / vertical layout">⇄</button>
+    <button id="zorient" title="layout: cycle vertical / horizontal / radial">V</button>
     <button id="zfit" class="fit" title="fit to window">FIT</button>
   </div>
 </main>
@@ -352,7 +352,7 @@ document.getElementById('skin').onchange=e=>setTheme(e.target.value);
 let TOPO=null;                 // {name,generated,nodes:[...]}
 const view={k:1,tx:0,ty:0};
 let TOPOS=[], activeId=null, laidOut=false;
-let orient=(()=>{ try{ return localStorage.getItem('topoOrient')==='h'?'h':'v'; }catch(e){ return 'v'; } })();   // 'v'=vertical (default)
+let orient=(()=>{ try{ const o=localStorage.getItem('topoOrient'); return (o==='h'||o==='r')?o:'v'; }catch(e){ return 'v'; } })();   // v=vertical (default), h=horizontal, r=radial
 
 // ================= SIDEBAR =================
 async function loadList(){
@@ -854,6 +854,13 @@ function layout(){
     // horizontal: levels stack top->bottom; siblings spread left->right, pitch = widest card + a tight gap
     const LVLH=CARDH_H+52, SLOTW=Math.max(CW_MIN_H,...nodes.map(n=>n.w))+34;
     nodes.forEach(n=>{ n.x=slotOf[n.id]*SLOTW-n.w/2; n.y=dep[n.id]*LVLH; });   // n.y is the card centre
+  } else if(orient==='r'){
+    // radial: root at centre, each depth a ring; leaf slots spread around the full circle. RING is sized
+    // so adjacent leaves on the outer ring clear ~one card, so denser trees just push the rings outward.
+    const D=Math.max(1,maxD), total=Math.max(1,slot);
+    const RING=Math.max(150, 175*total/(2*Math.PI*D));
+    nodes.forEach(n=>{ const R=dep[n.id]*RING, a=slotOf[n.id]/total*Math.PI*2;
+      n.x=R*Math.cos(a)-n.w/2; n.y=R*Math.sin(a); });                          // card centred on the ring point
   } else {
     // vertical: levels are columns left->right, spaced by the widest card in each; siblings stack
     const colW={}; nodes.forEach(n=>{ colW[dep[n.id]]=Math.max(colW[dep[n.id]]||CW_MIN,n.w); });
@@ -887,11 +894,11 @@ function fitText(t,maxW){const L=t.getComputedTextLength();if(L>maxW){t.setAttri
 const CW_MIN=160,CW_MAX=232;                 // 232 keeps ≥18px gap between 250px-spaced columns
 const CW_MIN_H=118,CW_MAX_H=156;             // horizontal: narrower, more upright cards so wide trees stay compact
 const CARDH_V=38,CARDH_H=54;                 // horizontal cards are taller (squarer) than the vertical bars
-const cardH=big=>(orient==='h'?CARDH_H:CARDH_V)+(big?4:0);
+const cardH=big=>(orient!=='v'?CARDH_H:CARDH_V)+(big?4:0);   // square cards for horizontal + radial
 function cardWidth(n){const fL=n.kind==='cpu'?12.5:10.5;
   const wl=11+measW(clip(n.label,28),fL)+22;          // label + room for the status LED
   const ws=11+measW(clip(n.sub||'',34),8.2)+46;       // sub + room for the right-side readout
-  const mn=orient==='h'?CW_MIN_H:CW_MIN, mx=orient==='h'?CW_MAX_H:CW_MAX;
+  const mn=orient!=='v'?CW_MIN_H:CW_MIN, mx=orient!=='v'?CW_MAX_H:CW_MAX;
   return Math.max(mn,Math.min(mx,Math.max(wl,ws)));}
 
 // ================= RENDER =================
@@ -924,6 +931,9 @@ function drawLink(world,p,c,cls,load,label){
   if(orient==='h'){                                  // parent bottom edge -> child top edge (half of CARDH_H≈27)
     const hh=27, x1=p.x+(p.w||160)/2, y1=p.y+hh, x2=c.x+(c.w||160)/2, y2=c.y-hh, midy=(y1+y2)/2;
     d=`M ${x1} ${y1} C ${x1} ${midy}, ${x2} ${midy}, ${x2} ${y2}`; lx=(x1+x2)/2; ly=midy-4;
+  } else if(orient==='r'){                           // radial spoke, centre -> centre (cards drawn over the ends)
+    const x1=p.x+(p.w||160)/2, y1=p.y, x2=c.x+(c.w||160)/2, y2=c.y;
+    d=`M ${x1} ${y1} L ${x2} ${y2}`; lx=(x1+x2)/2; ly=(y1+y2)/2-4;
   } else {                                           // parent right edge -> child left edge
     const px=p.x+(p.w||160), cx=c.x, midx=(px+cx)/2;
     d=`M ${px} ${p.y} C ${midx} ${p.y}, ${midx} ${c.y}, ${cx} ${c.y}`; lx=midx; ly=(p.y+c.y)/2-4;
@@ -1109,11 +1119,16 @@ function zoomBtn(f){const b=stage.getBoundingClientRect(),cx=b.width/2,cy=b.heig
 document.getElementById('zin').onclick=()=>zoomBtn(1.2);
 document.getElementById('zout').onclick=()=>zoomBtn(1/1.2);
 document.getElementById('zfit').onclick=fit;
-document.getElementById('zorient').onclick=()=>{        // swap layout axes, re-lay-out, re-fit
-  orient=orient==='h'?'v':'h';
-  try{ localStorage.setItem('topoOrient',orient); }catch(e){}
-  if(TOPO){ laidOut=false; layout(); fit(); }
-};
+const ORIENTS=['v','h','r'], ORIENT_NAME={v:'vertical',h:'horizontal',r:'radial'};
+function setOrient(o,relayout){                          // apply layout mode, update the button, re-lay-out + re-fit
+  orient=o;
+  try{ localStorage.setItem('topoOrient',o); }catch(e){}
+  const b=document.getElementById('zorient');
+  b.textContent=o.toUpperCase(); b.title='layout: '+ORIENT_NAME[o]+' (click to cycle)';
+  if(relayout&&TOPO){ laidOut=false; layout(); fit(); }
+}
+document.getElementById('zorient').onclick=()=>setOrient(ORIENTS[(ORIENTS.indexOf(orient)+1)%3],true);
+setOrient(orient,false);                                // sync the button label to the stored mode on load
 window.addEventListener('resize',()=>{if(TOPO&&laidOut)fit();});
 
 // ============ RIGHT-CLICK: open/generate a machine's topology ============
