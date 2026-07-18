@@ -851,8 +851,8 @@ function layout(){
   nodes.forEach(n=>{ dep[n.id]=depth(n); });
   const maxD=Math.max(0,...nodes.map(n=>dep[n.id]));
   if(orient==='h'){
-    // horizontal: levels stack top->bottom; siblings spread left->right, pitch = widest card so none collide
-    const LVLH=42+64, SLOTW=Math.max(CW_MIN,...nodes.map(n=>n.w))+GAP;
+    // horizontal: levels stack top->bottom; siblings spread left->right, pitch = widest card + a tight gap
+    const LVLH=CARDH_H+52, SLOTW=Math.max(CW_MIN_H,...nodes.map(n=>n.w))+34;
     nodes.forEach(n=>{ n.x=slotOf[n.id]*SLOTW-n.w/2; n.y=dep[n.id]*LVLH; });   // n.y is the card centre
   } else {
     // vertical: levels are columns left->right, spaced by the widest card in each; siblings stack
@@ -885,10 +885,14 @@ const _mc=document.createElement('canvas').getContext('2d');
 const measW=(s,px)=>{_mc.font=px+'px "DejaVu Sans Mono","Consolas",monospace';return _mc.measureText(String(s)).width;};
 function fitText(t,maxW){const L=t.getComputedTextLength();if(L>maxW){t.setAttribute('textLength',Math.max(1,maxW).toFixed(1));t.setAttribute('lengthAdjust','spacingAndGlyphs');}}
 const CW_MIN=160,CW_MAX=232;                 // 232 keeps ≥18px gap between 250px-spaced columns
+const CW_MIN_H=118,CW_MAX_H=156;             // horizontal: narrower, more upright cards so wide trees stay compact
+const CARDH_V=38,CARDH_H=54;                 // horizontal cards are taller (squarer) than the vertical bars
+const cardH=big=>(orient==='h'?CARDH_H:CARDH_V)+(big?4:0);
 function cardWidth(n){const fL=n.kind==='cpu'?12.5:10.5;
   const wl=11+measW(clip(n.label,28),fL)+22;          // label + room for the status LED
   const ws=11+measW(clip(n.sub||'',34),8.2)+46;       // sub + room for the right-side readout
-  return Math.max(CW_MIN,Math.min(CW_MAX,Math.max(wl,ws)));}
+  const mn=orient==='h'?CW_MIN_H:CW_MIN, mx=orient==='h'?CW_MAX_H:CW_MAX;
+  return Math.max(mn,Math.min(mx,Math.max(wl,ws)));}
 
 // ================= RENDER =================
 function render(){
@@ -917,8 +921,8 @@ function render(){
 function drawLink(world,p,c,cls,load,label){
   load=load||.1;
   let d,lx,ly;
-  if(orient==='h'){                                  // parent bottom edge -> child top edge (h≈38, half≈19)
-    const x1=p.x+(p.w||160)/2, y1=p.y+19, x2=c.x+(c.w||160)/2, y2=c.y-19, midy=(y1+y2)/2;
+  if(orient==='h'){                                  // parent bottom edge -> child top edge (half of CARDH_H≈27)
+    const hh=27, x1=p.x+(p.w||160)/2, y1=p.y+hh, x2=c.x+(c.w||160)/2, y2=c.y-hh, midy=(y1+y2)/2;
     d=`M ${x1} ${y1} C ${x1} ${midy}, ${x2} ${midy}, ${x2} ${y2}`; lx=(x1+x2)/2; ly=midy-4;
   } else {                                           // parent right edge -> child left edge
     const px=p.x+(p.w||160), cx=c.x, midx=(px+cx)/2;
@@ -932,7 +936,7 @@ function drawLink(world,p,c,cls,load,label){
     world.appendChild(t); }
 }
 function card(world,n,big){
-  const w=n.w||160,h=big?42:38;
+  const w=n.w||160,h=cardH(big);
   const isPort=n.up!==undefined, down=n.up===false, meas=measured(n);
   const col=n.kind==='cpu'?COL.hud:(n.cls?CLS[n.cls]:COL.hud);   // colour = lane class (real), not temp
   const ledCol=isPort?(down?COL.down:COL.ok):col;
