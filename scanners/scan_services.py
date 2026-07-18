@@ -44,15 +44,17 @@ def parse_ps(out: str, engine: str) -> list:
 
 
 def parse_stats(out: str) -> dict:
-    """`docker/podman stats --no-stream` tab output -> {name: {cpu, mem, memp}}.
+    """`docker/podman stats --no-stream` tab output -> {name: {cpu, mem, memp, io}}.
     Only running containers appear; mem keeps just the used side of 'used / limit',
-    memp is the memory percent (of the container limit, or host RAM if unlimited)."""
+    memp is the memory percent (of the container limit, or host RAM if unlimited),
+    io is BlockIO 'read / write' (cumulative bytes; the dashboard diffs it for a rate)."""
     s = {}
     for line in out.splitlines():
         p = line.split("\t")
         if len(p) >= 3 and p[0]:
             s[p[0]] = {"cpu": p[1].strip(), "mem": p[2].split(" / ")[0].strip(),
-                       "memp": p[3].strip() if len(p) > 3 else ""}
+                       "memp": p[3].strip() if len(p) > 3 else "",
+                       "io": p[4].strip() if len(p) > 4 else ""}
     return s
 
 
@@ -62,7 +64,7 @@ def containers() -> tuple:
         return None, []
     cons = parse_ps(_run([engine, "ps", "-a", "--format", _FMT]), engine)
     stats = parse_stats(_run([engine, "stats", "--no-stream", "--format",
-                              '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}']))
+                              '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.BlockIO}}']))
     for c in cons:
         c.update(stats.get(c["name"], {}))     # running containers gain cpu/mem
     return engine, cons
@@ -96,8 +98,10 @@ if __name__ == "__main__":
         assert len(r) == 3 and r[0]["name"] == "web" and r[0]["project"] == "mystack", r
         assert r[0]["icon"] == "http://icon.png" and r[0]["webui"] == "http://[IP]:[PORT:80]", r
         assert r[1]["state"] == "exited" and r[2]["project"] == "" and r[2]["icon"] == "", r
-        st = parse_stats("web\t3.20%\t1.2GiB / 15.6GiB\t7.69%\ndb\t0.00%\t20MiB / 15.6GiB\t0.13%\n")
-        assert st["web"] == {"cpu": "3.20%", "mem": "1.2GiB", "memp": "7.69%"}, st
+        st = parse_stats("web\t3.20%\t1.2GiB / 15.6GiB\t7.69%\t12.3MB / 4.5MB\n"
+                         "db\t0.00%\t20MiB / 15.6GiB\t0.13%\t0B / 0B\n")
+        assert st["web"] == {"cpu": "3.20%", "mem": "1.2GiB", "memp": "7.69%",
+                             "io": "12.3MB / 4.5MB"}, st
         print("scan_services self-check ok")
         sys.exit()
     main()

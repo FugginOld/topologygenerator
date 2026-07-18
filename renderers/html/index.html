@@ -214,15 +214,13 @@
   .svc-name{font-size:11px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .svc-sub{font-size:9px;color:var(--hud-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
   .svc-stat{font-size:8.5px;color:var(--hud);letter-spacing:.03em;font-variant-numeric:tabular-nums;opacity:.85}
-  /* radial CPU/MEM gauges on a container tile — conic-gradient ring, no lib */
-  .svc-gauges{display:flex;gap:12px;margin-top:3px}
-  .gg{display:flex;flex-direction:column;align-items:center;gap:2px}
-  .gg .ring{--v:0;--gc:var(--hud);position:relative;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;
-    background:conic-gradient(var(--gc) calc(var(--v)*3.6deg),rgba(var(--glow),.14) 0)}
-  .gg .ring.warm{--gc:var(--warn)} .gg .ring.hot{--gc:var(--crit)}
-  .gg .ring::before{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--card-fill)}
-  .gg .ring b{position:relative;font-size:7.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--card-title)}
-  .gg em{font-style:normal;font-size:6px;letter-spacing:.06em;color:var(--hud-dim)}
+  /* container tile live-metric HUD: CPU/MEM/IO with inline sparklines + Up — mirrors the Glances bar */
+  .svc-hud{display:flex;gap:11px;margin-top:4px;align-items:center;flex-wrap:wrap}
+  .hm{display:flex;align-items:center;gap:4px}
+  .hm .hl{font-size:7.5px;letter-spacing:.06em;color:var(--hud-dim);text-transform:uppercase}
+  .hm .hv{font-size:9px;font-weight:600;color:#3fbf6a;font-variant-numeric:tabular-nums}
+  .hm.up .hv{color:var(--card-title)}
+  .hm .msp{width:26px;height:13px;display:block}
   /* Glances system panel: 3x2 tile grid, Homepage-style */
   .gwrap{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
   .gtile{position:relative;overflow:hidden;background:var(--card-fill);border:1px solid var(--line);border-radius:8px;
@@ -572,6 +570,7 @@ async function loadSvcDash(){
   try{
     const r=await fetch('api/services?host='+encodeURIComponent(activeId)+'&_='+Date.now());
     const d=await r.json();
+    pushSvcHist(d.containers);                          // fresh payload only — keeps sparkline history live
     renderSvc(d);
     document.getElementById('dashupd').textContent=d.error?'':('updated '+new Date().toLocaleTimeString()+(d.stale?' (last known)':''));
   }catch(e){ renderSvc({error:'could not reach the dashboard API.'}); document.getElementById('dashupd').textContent=''; }
@@ -620,18 +619,19 @@ function attachGlDrag(wrap){
   });
 }
 let _sgid=0;
-function spark(vals){
-  const W=100,H=40,n=vals.length, g=el('svg',{class:'spark',viewBox:`0 0 ${W} ${H}`,preserveAspectRatio:'none'});
+function spark(vals,cls,rgb){                                   // rgb: "r,g,b" triple, defaults to the skin glow
+  const W=100,H=40,n=vals.length, col=rgb||'var(--glow)';
+  const g=el('svg',{class:cls||'spark',viewBox:`0 0 ${W} ${H}`,preserveAspectRatio:'none'});
   if(n<2) return g;
   const mn=Math.min(...vals), mx=Math.max(...vals), rng=(mx-mn)||1;
   const pts=vals.map((v,i)=>[(i/(n-1)*W), (H-2-((v-mn)/rng)*(H-4))]);
   const line=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
   const id='sg'+(++_sgid), defs=el('defs'), grad=el('linearGradient',{id,x1:0,y1:0,x2:0,y2:1});
-  grad.appendChild(el('stop',{offset:'0%',style:'stop-color:rgba(var(--glow),.5)'}));
-  grad.appendChild(el('stop',{offset:'100%',style:'stop-color:rgba(var(--glow),0)'}));
+  grad.appendChild(el('stop',{offset:'0%',style:`stop-color:rgba(${col},.5)`}));
+  grad.appendChild(el('stop',{offset:'100%',style:`stop-color:rgba(${col},0)`}));
   defs.appendChild(grad); g.appendChild(defs);
   g.appendChild(el('path',{d:line+` L ${W} ${H} L 0 ${H} Z`,style:`fill:url(#${id})`}));
-  g.appendChild(el('path',{d:line,style:'fill:none;stroke:rgba(var(--glow),.85);stroke-width:1.3','vector-effect':'non-scaling-stroke'}));
+  g.appendChild(el('path',{d:line,style:`fill:none;stroke:rgba(${col},.85);stroke-width:1.3`,'vector-effect':'non-scaling-stroke'}));
   return g;
 }
 const fmtBits=bps=>{ const b=(bps||0)*8; if(b<1000)return Math.round(b)+' bit/s'; if(b<1e6)return (b/1e3).toFixed(b<1e4?1:0).replace(/\.0$/,'')+' kbit/s'; return (b/1e6).toFixed(1)+' Mbit/s'; };
@@ -709,12 +709,44 @@ function svcIcon(c,hip,port,down){
   return img;
 }
 const gpct=s=>{const n=parseFloat(s);return isNaN(n)?null:Math.max(0,Math.min(100,n));};   // "3.20%" -> 3.2
-const memShort=m=>{const x=String(m||'').match(/([\d.]+)\s*([KMGT])/i);   // "15.98MiB" -> "16M"
-  if(!x) return ''; const n=parseFloat(x[1]); return (n>=10?Math.round(n):n)+x[2].toUpperCase();};
-function gauge(label,val,center,tip){                          // ring fill = %, center text set by caller
-  const g=hel('div','gg'), ring=hel('div','ring'+(val>=85?' hot':val>=60?' warm':''));
-  ring.style.setProperty('--v',val); ring.appendChild(hel('b',null,center));
-  g.appendChild(ring); g.appendChild(hel('em',null,label)); g.title=label+' '+tip; return g;
+const pctTxt=raw=>{const v=gpct(raw);return v==null?'':(Math.round(v*10)/10)+'%';};       // "3.20%" -> "3.2%"
+const _IOMUL={b:1,kb:1e3,mb:1e6,gb:1e9,tb:1e12};                                          // docker BlockIO is decimal
+function ioBytes(s){                                          // "12.3MB / 4.5MB" -> total bytes (read+write), cumulative
+  let t=0,any=false;
+  (String(s||'').match(/([\d.]+)\s*([kmgt]?b)/gi)||[]).forEach(tok=>{
+    const m=tok.match(/([\d.]+)\s*([kmgt]?b)/i);
+    if(m){ t+=parseFloat(m[1])*(_IOMUL[m[2].toLowerCase()]||1); any=true; }
+  });
+  return any?t:null;
+}
+const ioShort=n=>{ n=n||0; if(n<1000)return Math.round(n)+'B'; if(n<1e6)return (n/1e3).toFixed(n<1e4?1:0).replace(/\.0$/,'')+'K';
+  if(n<1e9)return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M'; return (n/1e9).toFixed(1)+'G'; };
+const _UPU={second:'s',minute:'m',hour:'h',day:'d',week:'w',month:'mo',year:'y'};
+function upText(st){                                          // docker status "Up 9 days" -> "9d" ('' when not running)
+  if(!/^Up/i.test(String(st||''))) return '';
+  const m=String(st).match(/Up\s+(?:about\s+an?\s+)?(\d+)?\s*(second|minute|hour|day|week|month|year)/i);
+  return m ? (m[1]||'1')+(_UPU[m[2].toLowerCase()]||'') : 'up';
+}
+// rolling per-container metric history for the tile sparklines (name -> {cpu,mem,io}); I/O is diffed to a rate
+const svcHist={}, SVCAP=30; let _svcIO={};
+function pushSvcHist(cons){
+  const seen=new Set();
+  (cons||[]).forEach(c=>{
+    if(c.state!=='running') return;
+    seen.add(c.name);
+    const h=svcHist[c.name]||(svcHist[c.name]={cpu:[],mem:[],io:[]});
+    const push=(a,v)=>{ if(v!=null&&!isNaN(v)){ a.push(v); if(a.length>SVCAP)a.shift(); } };
+    push(h.cpu,gpct(c.cpu)); push(h.mem,gpct(c.memp));
+    const cur=ioBytes(c.io);                                  // cumulative -> delta since last poll = activity
+    if(cur!=null){ const p=_svcIO[c.name]; push(h.io,(p!=null&&cur>=p)?cur-p:0); _svcIO[c.name]=cur; }
+  });
+  Object.keys(svcHist).forEach(n=>{ if(!seen.has(n)){ delete svcHist[n]; delete _svcIO[n]; } });   // forget gone containers
+}
+function hudMetric(label,val,hist,rgb,noSpark){
+  const m=hel('div','hm'+(noSpark?' up':''));
+  m.appendChild(hel('span','hl',label)); m.appendChild(hel('span','hv',val));
+  if(!noSpark&&hist&&hist.length>1) m.appendChild(spark(hist,'msp',rgb));
+  return m;
 }
 function svcTile(c,hip){
   const down=c.state&&c.state!=='running', port=pubPort(c.ports);
@@ -725,11 +757,14 @@ function svcTile(c,hip){
   const main=hel('div','svc-main');
   main.appendChild(hel('div','svc-name',c.name));
   main.appendChild(hel('div','svc-sub',(shortImg(c.image)+(port?' · :'+port:''))||c.status||c.state||''));
-  const cg=gpct(c.cpu), mg=gpct(c.memp);
-  if(cg!=null||mg!=null){
-    const row=hel('div','svc-gauges');
-    if(cg!=null) row.appendChild(gauge('CPU',cg,Math.round(cg),c.cpu));
-    if(mg!=null) row.appendChild(gauge('MEM',mg,memShort(c.mem)||Math.round(mg),c.mem||c.memp));
+  const cg=pctTxt(c.cpu), mg=pctTxt(c.memp), io=ioBytes(c.io), up=upText(c.status);
+  const h=svcHist[c.name];
+  if(cg||mg||io!=null||up){
+    const row=hel('div','svc-hud');
+    if(cg) row.appendChild(hudMetric('CPU',cg,h&&h.cpu,'99,150,255'));
+    if(mg) row.appendChild(hudMetric('MEM',mg,h&&h.mem,'167,139,250'));
+    if(io!=null) row.appendChild(hudMetric('I/O',ioShort(h&&h.io.length?h.io[h.io.length-1]:0),h&&h.io,'245,170,90'));
+    if(up) row.appendChild(hudMetric('UP',up,null,null,true));
     main.appendChild(row);
   }
   el.appendChild(main);
