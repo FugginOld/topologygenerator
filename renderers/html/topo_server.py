@@ -27,7 +27,7 @@ import socket
 import subprocess
 import sys
 import time
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 
 import agent_bundle   # agent tar.gz/zip builder (same dir) — see agent_bundle.py
 import icons          # service-icon CDN cache (same dir) — see icons.py
@@ -670,8 +670,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_download(self, filename: str, obj, ctype: str = "application/json") -> None:
-        # filename is sanitized to a safe charset -> no Content-Disposition header injection
-        fn = re.sub(r"[^A-Za-z0-9._-]", "-", filename) or "export"
+        # percent-encode -> no CR/LF (or quotes) can reach the Content-Disposition header
+        fn = quote(filename, safe="") or "export"
         body = obj if isinstance(obj, (bytes, bytearray)) else json.dumps(obj, indent=2).encode()
         self.send_response(200)
         self.send_header("Content-Type", ctype)
